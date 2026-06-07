@@ -1,268 +1,318 @@
-# 📈 A股投研平台 - 专业版
+# TradingAgents 中文增强版
 
-> 基于 OpenBB + Tushare + 智谱AI 的全功能A股投资研究平台
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/Version-cn--0.1.15-green.svg)](./VERSION)
+[![Documentation](https://img.shields.io/badge/docs-中文文档-green.svg)](./docs/)
+[![Original](https://img.shields.io/badge/基于-TauricResearch/TradingAgents-orange.svg)](https://github.com/TauricResearch/TradingAgents)
 
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.52.1-orange.svg)](https://streamlit.io/)
-[![License](https://img.shields.io/badge/License-AGPL%203.0-green.svg)](LICENSE)
+>
+> 🎓 **学习中心**: AI基础 | 提示词工程 | 模型选择 | 多智能体分析原理 | 风险与局限 | 源项目与论文 | 实战教程（部分为外链） | 常见问题
+> 🎯 **核心功能**: 原生OpenAI支持 | Google AI全面集成 | 自定义端点配置 | 智能模型选择 | 多LLM提供商支持 | 模型选择持久化 | Docker容器化部署 | 专业报告导出 | 完整A股支持 | 中文本地化
 
-## ✨ 功能特性
+面向中文用户的**多智能体与大模型股票分析学习平台**。帮助你系统化学习如何使用多智能体交易框架与 AI 大模型进行合规的股票研究与策略实验，不提供实盘交易指令，平台定位为学习与研究用途。
 
-### 📊 数据层（6大功能）
+## 🙏 致敬源项目
 
-- ✅ **A股实时行情** - 日线、分钟线、复权数据
-- ✅ **财务数据** - 资产负债表、利润表、现金流量表
-- ✅ **技术分析指标** - MA, MACD, RSI, 布林带、成交量分析
-- ✅ **新闻资讯** - 公司新闻、行业新闻、市场动态
-- ✅ **行业分析** - 申万一级行业、行业指数
-- ✅ **龙虎榜数据** - 机构买卖、游资动向
-
-### 🧮 分析层（5大功能）
+感谢 [Tauric Research](https://github.com/TauricResearch) 团队创造的革命性多智能体交易框架 [TradingAgents](https://github.com/TauricResearch/TradingAgents)！
 
-- ✅ **自动选股策略** - 多因子选股、量化选股
-- ✅ **风险评估** - 波动率、最大回撤、夏普比率
-- ✅ **组合分析** - 资产配置、风险分散
-- ✅ **回测系统** - 策略回测、绩效评估
-- ✅ **量化策略** - 趋势跟踪、均值回归、动量策略
+**🎯 我们的定位与使命**: 专注学习与研究，提供中文化学习中心与工具，合规友好，支持 A股/港股/美股 的分析与教学，推动 AI 金融技术在中文社区的普及与正确使用。
 
-### 🤖 AI辅助（4大功能）
+## 🎉 v1.0.0-preview 版本上线 - 全新架构升级
 
-- ✅ **智能研报生成** - 自动生成投资分析报告
-- ✅ **数据自动解读** - AI解读技术指标
-- ✅ **投资建议** - 买卖点建议、风险提示
-- ✅ **问答系统** - 自然语言查询
+> 🚀 **重磅发布**: v1.0.0-preview 版本现已正式！全新的 FastAPI + Vue 3 架构，带来企业级的性能和体验！
 
-## 🚀 快速开始
+### ✨ 核心特性
 
-### 环境要求
+#### 🏗️ **全新技术架构**
+- **后端升级**: 从 Streamlit 迁移到 FastAPI，提供更强大的 RESTful API
+- **前端重构**: 采用 Vue 3 + Element Plus，打造现代化的单页应用
+- **数据库优化**: MongoDB + Redis 双数据库架构，性能提升 10 倍
+- **容器化部署**: 完整的 Docker 多架构支持（amd64 + arm64）
 
-- Python 3.9 - 3.12
-- 2GB+ 内存
-- 10GB+ 磁盘空间
+#### 🎯 **企业级功能**
+- **用户权限管理**: 完整的用户认证、角色管理、操作日志系统
+- **配置管理中心**: 可视化的大模型配置、数据源管理、系统设置
+- **缓存管理系统**: 智能缓存策略，支持 MongoDB/Redis/文件多级缓存
+- **实时通知系统**: SSE+WebSocket 双通道推送，实时跟踪分析进度和系统状态
+- **批量分析功能**: 支持多只股票同时分析，提升工作效率
+- **智能股票筛选**: 基于多维度指标的股票筛选和排序系统
+- **自选股管理**: 个人自选股收藏、分组管理和跟踪功能
+- **个股详情页**: 完整的个股信息展示和历史分析记录
+- **模拟交易系统**: 虚拟交易环境，验证投资策略效果
 
-### 安装步骤
+#### 🤖 **智能分析增强**
+- **动态供应商管理**: 支持动态添加和配置 LLM 供应商
+- **模型能力管理**: 智能模型选择，根据任务自动匹配最佳模型
+- **多数据源同步**: 统一的数据源管理，支持 Tushare、AkShare、BaoStock
+- **开盘前投资日报**: 汇总东方财富新闻、财联社快讯、股吧公开帖子、国际宏观线索与量化信号，生成工作日 08:40 投资日报（见 [投资日报说明](docs/investment_daily.md)）
+- **报告导出功能**: 支持 Markdown/Word/PDF 多格式专业报告导出
 
-```bash
-# 1. 克隆仓库
-git clone https://github.com/你的用户名/a-share-research-platform.git
-cd a-share-research-platform
+#### � **重大Bug修复**
+- **技术指标计算修复**: 彻底解决市场分析师技术指标计算不准确问题
+- **基本面数据修复**: 修复基本面分析师PE、PB等关键财务数据计算错误
+- **死循环问题修复**: 解决部分用户在分析过程中触发的无限循环问题
+- **数据一致性优化**: 确保所有分析师使用统一、准确的数据源
 
-# 2. 安装依赖
-pip install -r requirements.txt
+#### �🐳 **Docker 多架构支持**
+- **跨平台部署**: 支持 x86_64 和 ARM64 架构（Apple Silicon、树莓派、AWS Graviton）
+- **GitHub Actions**: 自动化构建和发布 Docker 镜像
+- **一键部署**: 完整的 Docker Compose 配置，5 分钟快速启动
 
-# 3. 配置环境变量
-cp .env.example .env
-# 编辑 .env 文件，填入API密钥
+### 📊 技术栈升级
 
-# 4. 启动平台
-streamlit run app.py
-```
+| 组件 | v0.1.x | v1.0.0-preview |
+|------|--------|----------------|
+| **后端框架** | Streamlit | FastAPI + Uvicorn |
+| **前端框架** | Streamlit | Vue 3 + Vite + Element Plus |
+| **数据库** | 可选 MongoDB | MongoDB + Redis |
+| **API 架构** | 单体应用 | RESTful API + WebSocket |
+| **部署方式** | 本地/Docker | Docker 多架构 + GitHub Actions |
 
-**访问地址**: http://localhost:8501
 
-## ⚙️ 配置说明
 
-### 环境变量 (.env)
+#### 📥 安装部署
 
-```bash
-# Tushare配置
-TUSHARE_TOKEN=你的Tushare_Token
+**三种部署方式，任选其一**：
 
-# 智谱AI配置
-ZHIPU_API_KEY=你的智谱AI_API_Key
-ZHIPU_MODEL=glm-4-flash
+| 部署方式 | 适用场景 | 难度 | 文档链接 |
+|---------|---------|------|---------|
+| 🟢 **绿色版** | Windows 用户、快速体验 | ⭐ 简单 | [绿色版安装指南](https://mp.weixin.qq.com/s/eoo_HeIGxaQZVT76LBbRJQ) |
+| 🐳 **Docker版** | 生产环境、跨平台 | ⭐⭐ 中等 | [Docker 部署指南](https://mp.weixin.qq.com/s/JkA0cOu8xJnoY_3LC5oXNw) |
+| 💻 **本地代码版** | 开发者、定制需求 | ⭐⭐⭐ 较难 | [本地安装指南](https://mp.weixin.qq.com/s/cqUGf-sAzcBV19gdI4sYfA) |
 
-# 飞书机器人（可选）
-FEISHU_WEBHOOK=飞书Webhook地址
+⚠️ **重要提醒**：在分析股票之前，请按相关文档要求，将股票数据同步完成，否则分析结果将会出现数据错误。
 
-# 平台配置
-PLATFORM_NAME=A股投研平台
-DEFAULT_STOCK=000001.SZ
-ANALYSIS_DAYS=90
-```
 
-### 获取API密钥
 
-1. **Tushare Token**: https://tushare.pro/
-2. **智谱AI API Key**: https://open.bigmodel.cn/
-3. **飞书Webhook**: 飞书机器人配置
+#### 📚 使用指南
 
-## 📁 项目结构
+在使用前，建议先阅读详细的使用指南：
+- **[0、📘 TradingAgents-CN v1.0.0-preview 快速入门视频](https://www.bilibili.com/video/BV1i2CeBwEP7/?vd_source=5d790a5b8d2f46d2c10fd4e770be1594)**
 
-```
-a-share-research-platform/
-├── app.py                      # 主应用
-├── data_layer/                 # 数据层
-│   ├── a_stock_data.py        # A股数据
-│   ├── financial_data.py       # 财务数据
-│   ├── news_data.py           # 新闻数据
-│   └── technical_analysis.py  # 技术分析
-├── analysis_layer/             # 分析层
-│   ├── stock_selection.py     # 选股策略
-│   ├── risk_assessment.py     # 风险评估
-│   ├── portfolio_analysis.py  # 组合分析
-│   └── backtest.py            # 回测系统
-├── ai_layer/                   # AI层
-│   ├── report_generator.py    # 研报生成
-│   ├── data_interpreter.py    # 数据解读
-│   └── investment_advisor.py  # 投资建议
-├── feishu_bot.py               # 飞书机器人
-├── requirements.txt            # 依赖列表
-├── Dockerfile                  # Docker配置
-├── docker-compose.yml          # Docker Compose
-├── nginx.conf                  # Nginx配置
-├── .env.example                # 环境变量示例
-├── .streamlit/config.toml      # Streamlit配置
-└── README.md                   # 本文档
-```
+- **[1、📘 TradingAgents-CN v1.0.0-preview 使用指南](https://mp.weixin.qq.com/s/ppsYiBncynxlsfKFG8uEbw)**
+- **[2、📘 使用 Docker Compose 部署TradingAgents-CN v1.0.0-preview（完全版）](https://mp.weixin.qq.com/s/JkA0cOu8xJnoY_3LC5oXNw)**
+- **[3、📘 从 Docker Hub 更新 TradingAgents‑CN 镜像](https://mp.weixin.qq.com/s/WKYhW8J80Watpg8K6E_dSQ)**
+- **[4、📘 TradingAgents-CN v1.0.0-preview绿色版安装和升级指南](https://mp.weixin.qq.com/s/eoo_HeIGxaQZVT76LBbRJQ)**
+- **[5、📘 TradingAgents-CN v1.0.0-preview绿色版端口配置说明](https://mp.weixin.qq.com/s/o5QdNuh2-iKkIHzJXCj7vQ)**
+- **[6、📘 TradingAgents v1.0.0-preview 源码版安装手册（修订版）](https://mp.weixin.qq.com/s/cqUGf-sAzcBV19gdI4sYfA)**
+- **[7、📘 TradingAgents v1.0.0-preview 源码安装视频教程](https://www.bilibili.com/video/BV1FxCtBHEte/?vd_source=5d790a5b8d2f46d2c10fd4e770be1594)**
 
-## 🌐 部署方式
 
-### 方式1：本地运行
+使用指南包含：
+- ✅ 完整的功能介绍和操作演示
+- ✅ 详细的配置说明和最佳实践
+- ✅ 常见问题解答和故障排除
+- ✅ 实际使用案例和效果展示
 
-```bash
-streamlit run app.py
-```
+#### 关注公众号
 
-### 方式2：Docker部署
+1. **关注公众号**: 微信搜索 **"TradingAgents-CN"** 并关注
+2. 公众号每天推送项目最新进展和使用教程
 
-```bash
-# 构建镜像
-docker build -t a-share-platform:latest .
 
-# 启动容器
-docker run -d -p 8501:8501 --env-file .env a-share-platform:latest
-```
+- **微信公众号**: TradingAgents-CN（推荐）
 
-### 方式3：云服务器部署
+  <img src="assets/wexin.png" alt="微信公众号" width="200"/>
 
-详见 [DEPLOYMENT.md](DEPLOYMENT.md)
 
-## 📊 使用示例
+## 🆚 中文增强特色
 
-### 1. 股票分析
+**相比原版新增**: 智能新闻分析 | 多层次新闻过滤 | 新闻质量评估 | 统一新闻工具 | 多LLM提供商集成 | 模型选择持久化 | 快速切换按钮 | | 实时进度显示 | 智能会话管理 | 中文界面 | A股数据 | 国产LLM | Docker部署 | 专业报告导出 | 统一日志管理 | Web配置界面 | 成本优化
 
-```
-股票代码: 000001.SZ
-分析周期: 90天
-分析选项: 技术分析、基本面分析、AI分析
-```
+## 📢 招募测试志愿者
 
-### 2. 选股策略
+### 🎯 我们需要你的帮助！
 
-```
-策略类型: 多因子选股
-因子: 市盈率、市净率、ROE、ROA
-筛选条件: PE<30, PB<3, ROE>10%
-```
+TradingAgentsCN 已经获得 **13,000+ stars**，但一直由我一个人开发维护。每次发布新版本时，尽管我会尽力测试，但仍然会有一些隐藏的 bug 没有被发现。
 
-### 3. 策略回测
+**我需要你的帮助来让这个项目变得更好！**
 
-```
-策略: 趋势跟踪
-周期: 1年
-初始资金: 100万
-交易成本: 0.3%
-```
+### 🙋 我们需要什么样的志愿者？
 
-### 4. AI研报
+- ✅ 对股票分析或 AI 应用感兴趣
+- ✅ 愿意在新版本发布前进行测试
+- ✅ 能够清晰描述遇到的问题
+- ✅ 每周可以投入 2-4 小时（弹性时间）
 
-```
-输入: 股票代码 + 分析周期
-输出: 技术分析 + 基本面分析 + 投资建议 + 风险提示
-```
+**不需要编程经验！** 功能测试、文档测试、用户体验测试都非常有价值。
 
-## 🎯 推荐股票
+### 🎁 你将获得什么？
 
-### 深圳股票 (.SZ)
-- `000001.SZ` - 平安银行
-- `000002.SZ` - 万科A
-- `000858.SZ` - 五粮液
-- `002594.SZ` - 比亚迪
+1. **优先体验权** - 提前体验新功能和新版本
+2. **技术成长** - 深入了解多智能体系统和 LLM 应用开发
+3. **社区认可** - 在 README 和发布说明中致谢，获得 "Core Tester" 标签
+4. **开源贡献** - 为 13,000+ stars 的项目做出实质性贡献
+5. **未来机会** - 如果项目商业化，可能会有相应的报酬
 
-### 上海股票 (.SH)
-- `600519.SH` - 贵州茅台
-- `600036.SH` - 招商银行
-- `600900.SH` - 长江电力
-- `601318.SH` - 中国平安
+### 🚀 如何加入？
 
-## 🔧 高级功能
+**方式一：微信公众号申请（推荐）**
+1. 关注微信公众号：**TradingAgentsCN**
+2. 在公众号菜单选择"测试申请"菜单
+3. 填写申请信息
 
-### 1. 自定义技术指标
+**方式二：邮件申请**
+- 发送邮件到：hsliup@163.com
+- 主题：测试志愿者申请
 
-编辑 `data_layer/technical_analysis.py`，添加新的指标。
+### 📋 测试内容示例
 
-### 2. 自定义选股策略
+- **日常测试**（每周 2-4 小时）：测试新功能和 bug 修复，在不同环境下验证功能
+- **版本发布前测试**（每月 1-2 次）：完整的功能回归测试、安装和部署流程测试
 
-编辑 `analysis_layer/stock_selection.py`，实现新的策略。
+### 🌟 特别需要的测试方向
 
-### 3. 自定义AI分析
+- 🪟 **Windows 用户** - 测试 Windows 安装程序和绿色版
+- 🍎 **macOS 用户** - 测试 macOS 兼容性
+- 🐧 **Linux 用户** - 测试 Linux 兼容性
+- 🐳 **Docker 用户** - 测试 Docker 部署
+- 📊 **多市场用户** - 测试 A 股、港股、美股数据源
+- 🤖 **多 LLM 用户** - 测试不同 LLM 提供商（OpenAI/Gemini/DeepSeek/通义千问等）
 
-编辑 `ai_layer/investment_advisor.py`，调整AI分析逻辑。
+**详细信息**: 查看完整招募公告 → [📢 测试志愿者招募](docs/community/CALL_FOR_TESTERS.md)
 
-### 4. 飞书通知
+## 🤝 贡献指南
 
-编辑 `feishu_bot.py`，配置Webhook地址。
+我们欢迎各种形式的贡献：
 
-## 📈 性能优化
+### 贡献类型
 
-- ✅ 数据缓存（Redis）
-- ✅ 并发处理
-- ✅ 数据压缩
-- ✅ 负载均衡
+- 🐛 **Bug修复** - 发现并修复问题
+- ✨ **新功能** - 添加新的功能特性
+- 📚 **文档改进** - 完善文档和教程
+- 🌐 **本地化** - 翻译和本地化工作
+- 🎨 **代码优化** - 性能优化和代码重构
 
-## 🔒 安全建议
+### 贡献流程
 
-- ✅ API密钥加密存储
-- ✅ 使用HTTPS
-- ✅ 配置防火墙
-- ✅ 访问日志记录
+1. Fork 本仓库
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 创建 Pull Request
 
-## 🐛 常见问题
+### 📋 查看贡献者
 
-### Q1: API调用失败？
-
-**A**: 检查API密钥是否正确，网络连接是否正常。
-
-### Q2: 数据获取慢？
-
-**A**: 可以增加缓存时间，使用复权数据。
-
-### Q3: Docker启动失败？
-
-**A**: 检查端口是否被占用，查看Docker日志。
-
-## 📞 技术支持
-
-- **GitHub Issues**: https://github.com/你的用户名/a-share-research-platform/issues
-- **Tushare文档**: https://tushare.pro/document/2
-- **智谱AI文档**: https://open.bigmodel.cn/
-- **OpenBB文档**: https://docs.openbb.co/
-
-## 📝 更新日志
-
-### v1.0.0 (2026-02-20)
-- ✅ 初始版本发布
-- ✅ 数据层完整实现
-- ✅ 分析层完整实现
-- ✅ AI层完整实现
-- ✅ Docker部署支持
-- ✅ 飞书通知支持
+查看所有贡献者和详细贡献内容：**[🤝 贡献者名单](CONTRIBUTORS.md)**
 
 ## 📄 许可证
 
-本项目采用 AGPL-3.0 许可证。
+本项目采用**混合许可证**模式，详见 [LICENSE](LICENSE) 文件：
 
-## 🤝 贡献
+### 🔓 开源部分（Apache 2.0）
+- **适用范围**：除 `app/` 和 `frontend/` 外的所有文件
+- **权限**：商业使用 ✅ | 修改分发 ✅ | 私人使用 ✅ | 专利使用 ✅
+- **条件**：保留版权声明 ❗ | 包含许可证副本 ❗
 
-欢迎提交Issue和Pull Request！
+### 🔒 专有部分（需商业授权）
+- **适用范围**：`app/`（FastAPI后端）和 `frontend/`（Vue前端）目录
+- **商业使用**：需要单独许可协议
+- **联系授权**：[hsliup@163.com](mailto:hsliup@163.com)
 
-## 🌟 Star History
+### 📋 许可证选择建议
+- **个人学习/研究**：可自由使用全部功能
+- **商业应用**：请联系获取专有组件授权
+- **定制开发**：欢迎咨询商业合作方案
 
-如果这个项目对你有帮助，请给个Star ⭐️
+## 🙏 致谢与感恩
+
+### 🌟 向源项目开发者致敬
+
+我们向 [Tauric Research](https://github.com/TauricResearch) 团队表达最深的敬意和感谢：
+
+- **🎯 愿景领导者**: 感谢您们在AI金融领域的前瞻性思考和创新实践
+- **💎 珍贵源码**: 感谢您们开源的每一行代码，它们凝聚着无数的智慧和心血
+- **🏗️ 架构大师**: 感谢您们设计了如此优雅、可扩展的多智能体框架
+- **💡 技术先驱**: 感谢您们将前沿AI技术与金融实务完美结合
+- **🔄 持续贡献**: 感谢您们持续的维护、更新和改进工作
+
+### 🤝 社区贡献者致谢
+
+感谢所有为TradingAgents-CN项目做出贡献的开发者和用户！
+
+详细的贡献者名单和贡献内容请查看：**[📋 贡献者名单](CONTRIBUTORS.md)**
+
+包括但不限于：
+
+- 🐳 **Docker容器化** - 部署方案优化
+- 📄 **报告导出功能** - 多格式输出支持
+- 🐛 **Bug修复** - 系统稳定性提升
+- 🔧 **代码优化** - 用户体验改进
+- 📝 **文档完善** - 使用指南和教程
+- 🌍 **社区建设** - 问题反馈和推广
+- **🌍 开源贡献**: 感谢您们选择Apache 2.0协议，给予开发者最大的自由
+- **📚 知识分享**: 感谢您们提供的详细文档和最佳实践指导
+
+**特别感谢**：[TradingAgents](https://github.com/TauricResearch/TradingAgents) 项目为我们提供了坚实的技术基础。虽然Apache 2.0协议赋予了我们使用源码的权利，但我们深知每一行代码的珍贵价值，将永远铭记并感谢您们的无私贡献。
+
+### 🇨🇳 推广使命的初心
+
+创建这个中文增强版本，我们怀着以下初心：
+
+- **🌉 技术传播**: 让优秀的TradingAgents技术在中国得到更广泛的应用
+- **🎓 教育普及**: 为中国的AI金融教育提供更好的工具和资源
+- **🤝 文化桥梁**: 在中西方技术社区之间搭建交流合作的桥梁
+- **🚀 创新推动**: 推动中国金融科技领域的AI技术创新和应用
+
+### 🌍 开源社区
+
+感谢所有为本项目贡献代码、文档、建议和反馈的开发者和用户。正是因为有了大家的支持，我们才能更好地服务中文用户社区。
+
+### 🤝 合作共赢
+
+我们承诺：
+
+- **尊重原创**: 始终尊重源项目的知识产权和开源协议
+- **反馈贡献**: 将有价值的改进和创新反馈给源项目和开源社区
+- **持续改进**: 不断完善中文增强版本，提供更好的用户体验
+- **开放合作**: 欢迎与源项目团队和全球开发者进行技术交流与合作
+
+## 📈 版本历史
+
+- **v0.1.13** (2025-08-02): 🤖 原生OpenAI支持与Google AI生态系统全面集成 ✨ **最新版本**
+- **v0.1.12** (2025-07-29): 🧠 智能新闻分析模块与项目结构优化
+- **v0.1.11** (2025-07-27): 🤖 多LLM提供商集成与模型选择持久化
+- **v0.1.10** (2025-07-18): 🚀 Web界面实时进度显示与智能会话管理
+- **v0.1.9** (2025-07-16): 🎯 CLI用户体验重大优化与统一日志管理
+- **v0.1.8** (2025-07-15): 🎨 Web界面全面优化与用户体验提升
+- **v0.1.7** (2025-07-13): 🐳 容器化部署与专业报告导出
+- **v0.1.6** (2025-07-11): 🔧 阿里百炼修复与数据源升级
+- **v0.1.5** (2025-07-08): 📊 添加Deepseek模型支持
+- **v0.1.4** (2025-07-05): 🏗️ 架构优化与配置管理重构
+- **v0.1.3** (2025-06-28): 🇨🇳 A股市场完整支持
+- **v0.1.2** (2025-06-15): 🌐 Web界面和配置管理
+- **v0.1.1** (2025-06-01): 🧠 国产LLM集成
+
+📋 **详细更新日志**: [CHANGELOG.md](./docs/releases/CHANGELOG.md)
+
+## 📞 联系方式
+
+- **GitHub Issues**: [提交问题和建议](https://github.com/hsliuping/TradingAgents-CN/issues)
+- **邮箱**: hsliup@163.com
+- 项目ＱＱ群：1009816091
+- 项目微信公众号：TradingAgents-CN
+
+  <img src="assets/wexin.png" alt="微信公众号" width="200"/>
+
+- **原项目**: [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)
+- **文档**: [完整文档目录](docs/)
+
+## ⚠️ 风险提示
+
+**重要声明**: 本框架仅用于研究和教育目的，不构成投资建议。
+
+- 📊 交易表现可能因多种因素而异
+- 🤖 AI模型的预测存在不确定性
+- 💰 投资有风险，决策需谨慎
+- 👨‍💼 建议咨询专业财务顾问
 
 ---
 
-**开发状态**: ✅ 已完成
-**部署状态**: 🚧 待部署
-**最后更新**: 2026-02-20
+<div align="center">
+
+**🌟 如果这个项目对您有帮助，请给我们一个 Star！**
+
+[⭐ Star this repo](https://github.com/hsliuping/TradingAgents-CN) | [🍴 Fork this repo](https://github.com/hsliuping/TradingAgents-CN/fork) | [📖 Read the docs](./docs/)
+
+</div>

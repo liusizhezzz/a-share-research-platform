@@ -1,0 +1,53 @@
+FROM python:3.10-slim-bookworm
+
+ARG TARGETARCH
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    TZ=Asia/Shanghai
+
+WORKDIR /app
+
+# 配置国内 apt 源（阿里云）
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
+    sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
+
+# 安装系统依赖
+RUN mkdir -p /app/logs /app/data /app/config && \
+    echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::http::Timeout "60";' >> /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::https::Timeout "60";' >> /etc/apt/apt.conf.d/80-retries && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        fontconfig \
+        fonts-noto-cjk \
+        wget \
+        xvfb \
+        pandoc \
+        wkhtmltopdf && \
+    fc-cache -fv && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md ./
+
+# 安装 Python 依赖（使用清华镜像）
+RUN pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip install --prefer-binary . -i https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip install --prefer-binary pdfkit -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+COPY app ./app
+COPY tradingagents ./tradingagents
+COPY config ./config
+COPY scripts ./scripts
+COPY docs ./docs
+COPY install ./install
+COPY .env.docker ./.env
+
+EXPOSE 8000
+
+ENV DOCKER_CONTAINER=true
+
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

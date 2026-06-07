@@ -1,38 +1,74 @@
 version: '3.8'
-
 services:
-  app:
-    build: .
-    container_name: a-share-platform
+  mongodb:
+    image: mongo:4.4
+    container_name: tradingagents-mongodb
+    restart: unless-stopped
     ports:
-      - "8501:8501"
-    volumes:
-      - ./.env:/app/.env
-      - streamlit_cache:/app/.streamlit
+      - "127.0.0.1:27017:27017"
     environment:
-      - TZ=Asia/Shanghai
-    restart: unless-stopped
-    networks:
-      - app-network
-
-  nginx:
-    image: nginx:alpine
-    container_name: a-share-nginx
-    ports:
-      - "80:80"
-      - "443:443"
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: tradingagents123
+      MONGO_INITDB_DATABASE: tradingagent
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - app
-    restart: unless-stopped
+      - mongodb_data:/data/db
     networks:
-      - app-network
+      - tradingagents-network
 
-networks:
-  app-network:
-    driver: bridge
+  redis:
+    image: redis:7-alpine
+    container_name: tradingagents-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass tradingagents123
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - tradingagents-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: tradingagents-backend:v1.0.0-preview
+    container_name: tradingagents-backend
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+      - redis
+    env_file:
+      - .env
+    environment:
+      - MONGODB_HOST=tradingagents-mongodb
+      - REDIS_HOST=tradingagents-redis
+      - PYTHONUNBUFFERED=1
+      - TZ=Asia/Shanghai
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - tradingagents-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_BASE_URL: ""
+    image: tradingagents-frontend:v1.0.0-preview
+    container_name: tradingagents-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:3000:80"
+    networks:
+      - tradingagents-network
 
 volumes:
-  streamlit_cache:
+  mongodb_data:
+  redis_data:
+
+networks:
+  tradingagents-network:
+    driver: bridge
