@@ -348,6 +348,8 @@ import {
 } from '@element-plus/icons-vue'
 import { investmentDailyApi, type DailyNewsItem, type InvestmentDailyReport } from '@/api/investmentDaily'
 
+defineOptions({ name: 'InvestmentDailyHome' })
+
 const router = useRouter()
 const loading = ref(false)
 const generating = ref(false)

@@ -348,6 +348,8 @@ import StockOpportunityTable from '@/components/MarketIntelligence/StockOpportun
 import ThemeTreemapChart from '@/components/MarketIntelligence/ThemeTreemapChart.vue'
 import TransmissionSankeyChart from '@/components/MarketIntelligence/TransmissionSankeyChart.vue'
 
+defineOptions({ name: 'MarketIntelligenceHome' })
+
 const router = useRouter()
 const loading = ref(false)
 const generating = ref(false)

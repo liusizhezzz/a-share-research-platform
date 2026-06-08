@@ -77,6 +77,58 @@ app.config.warnHandler = (msg, vm, trace) => {
   console.warn('全局警告:', msg, trace)
 }
 
+let appMounted = false
+
+const hideBootSplash = () => {
+  const bootSplash = document.getElementById('app-boot-splash')
+  if (bootSplash) {
+    requestAnimationFrame(() => {
+      bootSplash.classList.add('boot-splash--hidden')
+      window.setTimeout(() => bootSplash.remove(), 360)
+    })
+  }
+}
+
+const mountApp = () => {
+  if (appMounted) return
+  app.mount('#app')
+  appMounted = true
+  hideBootSplash()
+  console.log('🚀 应用已挂载')
+}
+
+const runPostMountChecks = async (authStore: ReturnType<typeof useAuthStore>, appStore: ReturnType<typeof useAppStore>) => {
+  try {
+    console.log('🔍 检查API连接状态...')
+    const apiConnected = await appStore.checkApiConnection()
+
+    if (apiConnected) {
+      console.log('✅ API连接正常，检查认证状态...')
+      // 检查本地存储的认证信息（设置较短的超时时间）
+      const checkPromise = authStore.checkAuthStatus()
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('认证检查超时')), 5000) // 5秒超时
+      })
+
+      await Promise.race([checkPromise, timeoutPromise])
+      console.log('✅ 认证状态初始化完成')
+
+      // 如果用户已登录，启动 token 自动刷新定时器
+      if (authStore.isAuthenticated) {
+        setupTokenRefreshTimer()
+      }
+    } else {
+      console.log('⚠️ API连接失败，跳过认证检查')
+    }
+  } catch (error) {
+    console.warn('⚠️ 后台状态检查失败，应用继续保持可用:', error)
+    // 如果是网络错误，不影响应用启动
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      console.log('📱 离线模式：应用将在没有后端连接的情况下启动')
+    }
+  }
+}
+
 // 初始化认证状态
 const initApp = async () => {
   try {
@@ -102,45 +154,11 @@ const initApp = async () => {
       appStore.setApiConnected(false)
     })
 
-    // 检查API连接状态
-    console.log('🔍 检查API连接状态...')
-    const apiConnected = await appStore.checkApiConnection()
-
-    if (apiConnected) {
-      console.log('✅ API连接正常，检查认证状态...')
-      // 检查本地存储的认证信息（设置较短的超时时间）
-      const checkPromise = authStore.checkAuthStatus()
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('认证检查超时')), 5000) // 5秒超时
-      })
-
-      await Promise.race([checkPromise, timeoutPromise])
-      console.log('✅ 认证状态初始化完成')
-
-      // 如果用户已登录，启动 token 自动刷新定时器
-      if (authStore.isAuthenticated) {
-        setupTokenRefreshTimer()
-      }
-    } else {
-      console.log('⚠️ API连接失败，跳过认证检查')
-    }
+    mountApp()
+    void runPostMountChecks(authStore, appStore)
   } catch (error) {
     console.warn('⚠️ 应用初始化失败，但应用将继续启动:', error)
-    // 如果是网络错误，不影响应用启动
-    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-      console.log('📱 离线模式：应用将在没有后端连接的情况下启动')
-    }
-  } finally {
-    // 无论认证状态如何，都挂载应用
-    app.mount('#app')
-    const bootSplash = document.getElementById('app-boot-splash')
-    if (bootSplash) {
-      requestAnimationFrame(() => {
-        bootSplash.classList.add('boot-splash--hidden')
-        window.setTimeout(() => bootSplash.remove(), 360)
-      })
-    }
-    console.log('🚀 应用已挂载')
+    mountApp()
   }
 }
 

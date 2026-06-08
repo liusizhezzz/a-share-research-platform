@@ -99,7 +99,9 @@ const keepAliveComponents = computed(() => [
   'Dashboard',
   'StockScreening',
   'AnalysisHistory',
-  'QueueManagement'
+  'QueueManagement',
+  'MarketIntelligenceHome',
+  'InvestmentDailyHome'
 ])
 
 // 移动端判断
