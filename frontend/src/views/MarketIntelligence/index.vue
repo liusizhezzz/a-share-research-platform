@@ -769,9 +769,9 @@ onBeforeUnmount(() => {
 }
 
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: start;
   gap: 16px;
   padding: 20px 22px;
   margin-bottom: 16px;
@@ -781,15 +781,23 @@ onBeforeUnmount(() => {
     linear-gradient(90deg, rgba(20, 38, 64, 0.96), rgba(12, 20, 34, 0.96) 58%, rgba(16, 35, 44, 0.92));
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
 
+  > div:first-child {
+    min-width: 0;
+  }
+
   h1 {
     margin: 0;
     font-size: 28px;
     font-weight: 780;
     letter-spacing: 0;
     color: #f6f9ff;
+    line-height: 1.22;
+    word-break: keep-all;
+    overflow-wrap: normal;
   }
 
   p {
+    max-width: 760px;
     margin: 7px 0 0;
     color: #92a0b8;
     line-height: 1.55;
@@ -800,7 +808,9 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
 }
 
 .hours-select {
