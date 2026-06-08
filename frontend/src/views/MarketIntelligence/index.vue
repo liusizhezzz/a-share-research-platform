@@ -618,6 +618,12 @@ const fetchSelectedEventAnalysis = async (eventId = selectedEvent.value?.event_i
   try {
     const response = await marketIntelligenceApi.getEventAnalysis(eventId)
     if (response.data?.status === 'not_started') {
+      setEventAnalysis(eventId, {
+        event_id: eventId,
+        event_title: selectedEvent.value?.event_id === eventId ? selectedEvent.value?.title : undefined,
+        status: 'not_started',
+        updated_at: new Date().toISOString()
+      })
       return
     }
     if (response.data?.event_id === eventId) {
@@ -631,9 +637,6 @@ const fetchSelectedEventAnalysis = async (eventId = selectedEvent.value?.event_i
   }
 }
 
-const forceAnalysisNeeded = (analysis?: EventImpactAnalysis | null) =>
-  !analysis || !['ready', 'partial', 'queued', 'running'].includes(analysis.status || '')
-
 const selectEventById = (
   eventId: string,
   options: { openDrawer?: boolean; analyze?: boolean } = {}
@@ -646,15 +649,7 @@ const selectEventById = (
   selectedEventId.value = eventId
   if (options.openDrawer) drawerVisible.value = true
   if (options.analyze) {
-    const existing = eventAnalyses.value[eventId]
-    if (forceAnalysisNeeded(existing)) {
-      setEventAnalysisStatus(eventId, 'queued')
-    }
-    if (forceAnalysisNeeded(existing)) {
-      void analyzeEvent(eventId, false)
-    } else {
-      void fetchSelectedEventAnalysis(eventId)
-    }
+    void fetchSelectedEventAnalysis(eventId)
   } else {
     void fetchSelectedEventAnalysis(eventId)
   }

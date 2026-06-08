@@ -171,13 +171,28 @@ async def analyze_event_impact(
     )
     task_id = task["task_id"]
     try:
-        await task_service.mark_processing(task_id, "正在分析事件影响链", progress=20)
-        analysis = await service.analyze_event_impact(event_id, force=force)
+        await task_service.mark_processing(task_id, "事件影响分析已加入后台队列", progress=10)
+        await service.queue_event_impact_analysis(
+            [event],
+            queue_source="manual",
+            force=force,
+            kick=True,
+            research_task_id=task_id,
+        )
+        analysis = await service.get_event_analysis(event_id) or {
+            "event_id": event_id,
+            "event_title": event.get("title"),
+            "status": "queued",
+            "research_task_id": task_id,
+        }
         analysis["task_id"] = task_id
-        await task_service.mark_completed(
+        await task_service.update_task(
             task_id,
+            status="processing",
+            progress=15,
+            message="事件影响分析排队中，后台完成后自动刷新",
+            current_step="queued",
             result={**analysis, "route_path": "/market-intelligence"},
-            message="事件影响分析完成",
         )
     except ValueError:
         await task_service.mark_failed(task_id, "全球事件不存在")
@@ -185,7 +200,7 @@ async def analyze_event_impact(
     except Exception as exc:
         await task_service.mark_failed(task_id, str(exc))
         raise
-    return ok(data=analysis, message="事件影响分析完成")
+    return ok(data=analysis, message="事件影响分析已加入后台队列")
 
 
 @router.get("/events/{event_id}/analysis", response_model=dict)

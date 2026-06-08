@@ -314,6 +314,12 @@ class Settings(BaseSettings):
     MARKET_INTELLIGENCE_PUBLIC_SOURCE_MAX_ITEMS: int = Field(default=12, ge=1, le=50)
     MARKET_INTELLIGENCE_PUBLIC_SOURCE_CONCURRENCY: int = Field(default=6, ge=1, le=12)
     MARKET_INTELLIGENCE_PUBLIC_SOURCE_TIMEOUT_SECONDS: int = Field(default=8, ge=3, le=30)
+    MARKET_INTELLIGENCE_AUTO_EVENT_ANALYSIS_ENABLED: bool = Field(default=True)
+    MARKET_INTELLIGENCE_EVENT_AUTO_ANALYSIS_MIN_SEVERITY: float = Field(default=55.0, ge=0, le=100)
+    MARKET_INTELLIGENCE_EVENT_ANALYSIS_MAX_QUEUE_PER_RUN: int = Field(default=12, ge=1, le=50)
+    MARKET_INTELLIGENCE_EVENT_ANALYSIS_CONCURRENCY: int = Field(default=3, ge=1, le=6)
+    MARKET_INTELLIGENCE_EVENT_ANALYSIS_QUEUE_INTERVAL_SECONDS: int = Field(default=60, ge=10, le=600)
+    MARKET_INTELLIGENCE_EVENT_ANALYSIS_STALE_MINUTES: int = Field(default=30, ge=5, le=180)
 
     @property
     def is_production(self) -> bool:

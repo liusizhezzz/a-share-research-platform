@@ -761,11 +761,32 @@ async def lifespan(app: FastAPI):
                         pass
                 logger.error(f"❌ 研报深度摘要失败: {e}", exc_info=True)
 
+        async def run_market_event_analysis_queue():
+            """持续消化全球事件影响分析队列。"""
+            try:
+                from app.services.market_intelligence_service import get_market_intelligence_service
+
+                service = await get_market_intelligence_service()
+                result = await service.drain_event_analysis_queue(reason="scheduler")
+                if result.get("started") or result.get("failed"):
+                    logger.info(
+                        f"🧠 事件影响分析队列: started={result.get('started', 0)}, "
+                        f"failed={result.get('failed', 0)}, running={result.get('running', 0)}"
+                    )
+            except Exception as e:
+                logger.error(f"❌ 事件影响分析队列失败: {e}", exc_info=True)
+
         scheduler.add_job(
             run_market_data_ingest_interval,
             IntervalTrigger(minutes=settings.MARKET_INTELLIGENCE_INGEST_INTERVAL_MINUTES, timezone=settings.TIMEZONE),
             id="market_data_ingest_interval",
             name="市场情报5分钟增量抓取"
+        )
+        scheduler.add_job(
+            run_market_event_analysis_queue,
+            IntervalTrigger(seconds=settings.MARKET_INTELLIGENCE_EVENT_ANALYSIS_QUEUE_INTERVAL_SECONDS, timezone=settings.TIMEZONE),
+            id="market_event_analysis_queue",
+            name="市场情报事件影响分析队列"
         )
         scheduler.add_job(
             run_pre_market_enrichment,
@@ -824,6 +845,7 @@ async def lifespan(app: FastAPI):
                 "intraday_refresh_1445",
                 "closing_review",
                 "research_report_digest",
+                "market_event_analysis_queue",
             ):
                 scheduler.pause_job(job_id)
             logger.info("⏸️ 市场情报自动化任务已添加但暂停")

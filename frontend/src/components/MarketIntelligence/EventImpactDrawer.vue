@@ -25,7 +25,7 @@
         </el-button>
       </div>
       <div v-if="isPending" class="analysis-box loading">
-        已加入队列，正在分析当前事件的资产变量、传导渠道、A股主题、个股映射和风险反证...
+        {{ pendingText }}
       </div>
       <div v-else-if="hasReadyAnalysis" class="analysis-box">
         <div class="analysis-meta">
@@ -39,7 +39,7 @@
         当前事件分析失败，请稍后重新分析。
       </div>
       <div v-else class="analysis-box empty">
-        当前事件尚未分析。点击“开始分析”后，将只基于这个事件加入队列生成影响链。
+        当前事件尚未进入自动分析队列，通常是严重度或影响力暂未达到阈值。点击“开始分析”后，将只基于这个事件加入队列生成影响链。
       </div>
 
       <div class="section-title">传导路径</div>
@@ -97,6 +97,12 @@ const isPending = computed(() => props.analyzing || ['queued', 'running'].includ
 const hasReadyAnalysis = computed(() =>
   ['ready', 'partial'].includes(props.analysis?.status || '') && Boolean(props.analysis?.analysis_markdown)
 )
+const pendingText = computed(() => {
+  if (props.analysis?.status === 'queued') {
+    return '已进入后台自动分析队列，服务器会按严重度、来源影响力和事件新鲜度优先处理。'
+  }
+  return '正在分析当前事件的资产变量、传导渠道、A股主题、个股映射和风险反证...'
+})
 
 const analysisHtml = computed(() => {
   const markdown = props.analysis?.analysis_markdown || ''

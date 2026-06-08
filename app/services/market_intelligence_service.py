@@ -15,6 +15,7 @@ import logging
 import math
 import os
 import re
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -751,6 +752,8 @@ class MarketIntelligenceService:
 
     def __init__(self) -> None:
         self._indexes_ready = False
+        self._event_analysis_lock: Optional[asyncio.Lock] = None
+        self._event_analysis_drain_task: Optional[asyncio.Task] = None
 
     @property
     def db(self):
@@ -794,6 +797,9 @@ class MarketIntelligenceService:
         await self.db.crawler_runs.create_index([("started_at", -1)], background=True)
         await self.db.crawler_runs.create_index([("job_id", 1), ("started_at", -1)], background=True)
         await self.db.event_impact_analyses.create_index([("event_id", 1)], unique=True, background=True)
+        await self.db.event_impact_analyses.create_index([("status", 1), ("priority", -1), ("queued_at", 1)], background=True)
+        await self.db.event_impact_analyses.create_index([("updated_at", -1)], background=True)
+        await self.db.event_impact_analyses.create_index([("event_title_key", 1), ("status", 1)], background=True)
         await self.db.prediction_evaluations.create_index([("signal_date", -1), ("code", 1)], background=True)
         self._indexes_ready = True
 
@@ -887,7 +893,12 @@ class MarketIntelligenceService:
             counter("global_events").fetched = len(global_events)
 
             saved_documents, saved_by_source = await self._save_documents(documents)
-            saved_events = await self._save_global_events(global_events)
+            saved_events, changed_events = await self._save_global_events(global_events)
+            event_analysis_queue = await self.queue_event_impact_analysis(
+                changed_events,
+                queue_source=job_id,
+                kick=True,
+            )
             await self._persist_rolling_sources(daily, market_news, stock_news, announcements, reports, guba_posts)
             counter("market_documents").saved = saved_documents
             for status in public_statuses:
@@ -912,6 +923,7 @@ class MarketIntelligenceService:
                 "theme_count": len(signals.get("themes", [])),
                 "stock_count": len(signals.get("stocks", [])),
                 "cluster_count": len(clusters),
+                "event_analysis_queue": event_analysis_queue,
                 "sources": [c.__dict__ for c in counters.values()],
             }
         except Exception as e:
@@ -1258,7 +1270,13 @@ class MarketIntelligenceService:
             },
         }
 
-    async def analyze_event_impact(self, event_id: str, *, force: bool = False) -> Dict[str, Any]:
+    async def analyze_event_impact(
+        self,
+        event_id: str,
+        *,
+        force: bool = False,
+        claim_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
         await self._ensure_indexes()
         existing = await self.db.event_impact_analyses.find_one({"event_id": event_id})
         event = await self.get_global_event(event_id)
@@ -1271,16 +1289,22 @@ class MarketIntelligenceService:
                 return _jsonable(existing)
             elif existing.get("status") == "running":
                 updated_at = _parse_dt(existing.get("updated_at"))
-                if (_utc_now() - updated_at).total_seconds() < 20 * 60:
+                if claim_token and existing.get("claim_token") == claim_token:
+                    pass
+                elif (_utc_now() - updated_at).total_seconds() < 20 * 60:
                     return _jsonable(existing)
+        running_update = {
+            "event_id": event_id,
+            "status": "running",
+            "updated_at": _utc_now(),
+            "event_title": event.get("title"),
+            "event_title_key": self._event_title_key(event.get("title")),
+        }
+        if claim_token:
+            running_update["claim_token"] = claim_token
         await self.db.event_impact_analyses.update_one(
             {"event_id": event_id},
-            {"$set": {
-                "event_id": event_id,
-                "status": "running",
-                "updated_at": _utc_now(),
-                "event_title": event.get("title"),
-            }},
+            {"$set": running_update},
             upsert=True,
         )
         docs = await self._event_evidence_docs(event, limit=60)
@@ -1297,6 +1321,7 @@ class MarketIntelligenceService:
         analysis = {
             "event_id": event_id,
             "event_title": event.get("title"),
+            "event_title_key": self._event_title_key(event.get("title")),
             "status": "ready" if llm_result.get("status") in {"ready", "skipped"} else "partial",
             "updated_at": _utc_now(),
             "model": llm_result.get("model"),
@@ -1319,6 +1344,15 @@ class MarketIntelligenceService:
             if event and doc.get("event_title") and doc.get("event_title") != event.get("title"):
                 await self.db.event_impact_analyses.delete_one({"event_id": event_id})
                 return None
+        if not doc:
+            event = await self.get_global_event(event_id)
+            if event and self._should_auto_analyze_event(event):
+                await self.queue_event_impact_analysis(
+                    [event],
+                    queue_source="read_fallback",
+                    kick=True,
+                )
+                doc = await self.db.event_impact_analyses.find_one({"event_id": event_id})
         return _jsonable(doc) if doc else None
 
     async def run_pre_market_enrichment(self) -> Dict[str, Any]:
@@ -2224,8 +2258,9 @@ class MarketIntelligenceService:
                 saved_by_source[source] = saved_by_source.get(source, 0) + 1
         return saved, saved_by_source
 
-    async def _save_global_events(self, events: List[Dict[str, Any]]) -> int:
+    async def _save_global_events(self, events: List[Dict[str, Any]]) -> Tuple[int, List[Dict[str, Any]]]:
         saved = 0
+        changed_events: List[Dict[str, Any]] = []
         for event in events:
             result = await self.db.global_events.replace_one(
                 {"event_id": event["event_id"]},
@@ -2234,7 +2269,351 @@ class MarketIntelligenceService:
             )
             if result.upserted_id or result.modified_count:
                 saved += 1
-        return saved
+                changed_events.append(event)
+        return saved, changed_events
+
+    def _event_analysis_priority(self, event: Dict[str, Any]) -> float:
+        severity = _safe_float(event.get("severity"))
+        focus = _safe_float(event.get("focus_score"))
+        influence = _safe_float(event.get("influence_score"))
+        source_weight = _safe_float(event.get("source_weight"), 1.0)
+        public_bonus = 8 if event.get("evidence_kind") == "public_intel" else 0
+        mapped_bonus = min(10, len(event.get("mapped_themes") or []) * 2 + len(event.get("mapped_stocks") or []) * 2)
+        return round(
+            severity * 0.50
+            + focus * 0.24
+            + influence * 0.14
+            + min(10, max(0, source_weight * 4))
+            + public_bonus
+            + mapped_bonus,
+            2,
+        )
+
+    def _event_title_key(self, title: Any) -> str:
+        tokens = re.findall(r"[\u4e00-\u9fa5A-Za-z0-9]+", str(title or "").lower())
+        return "".join(tokens)[:96]
+
+    def _is_non_event_title(self, title: Any, category: str) -> bool:
+        text = str(title or "").strip().lower()
+        if not text:
+            return True
+        product_noise = (
+            "芝麻ai",
+            "level2",
+            "十档",
+            "行情终端",
+            "客户端下载",
+            "下载app",
+            "模拟交易",
+            "开户",
+            "广告",
+        )
+        if any(keyword in text for keyword in product_noise):
+            return True
+        if category in {"china_finance", "markets_news"} and text in {"行情", "快讯", "自选股"}:
+            return True
+        return False
+
+    def _event_has_material_investment_signal(self, event: Dict[str, Any]) -> bool:
+        category = str(event.get("source_category") or "").strip()
+        if self._is_non_event_title(event.get("title"), category):
+            return False
+        text = " ".join(
+            str(value or "")
+            for value in (
+                event.get("title"),
+                event.get("summary"),
+                event.get("location_name"),
+                event.get("region"),
+                event.get("country"),
+            )
+        ).lower()
+        if event.get("mapped_stocks"):
+            return True
+        high_signal_categories = {
+            "official_finance",
+            "macro",
+            "global_macro",
+            "markets_news",
+            "global_news",
+            "think_tank",
+            "defense",
+            "osint",
+            "maritime",
+            "tech",
+            "research",
+            "startups",
+            "cyber",
+            "crypto",
+            "positioning",
+            "health",
+            "food",
+            "china_finance",
+        }
+        if category in high_signal_categories:
+            return True
+        material_keywords = (
+            "war", "conflict", "missile", "attack", "sanction", "tariff", "export control",
+            "trade war", "supply chain", "shipping", "port", "canal", "strait", "oil",
+            "gas", "lng", "copper", "gold", "palladium", "commodity", "inflation",
+            "rate", "fed", "central bank", "currency", "ransomware", "cve", "vulnerability",
+            "outbreak", "earthquake", "fire", "strike", "shutdown", "ban",
+            "战争", "冲突", "导弹", "袭击", "制裁", "关税", "出口管制", "贸易",
+            "供应链", "航运", "港口", "运河", "海峡", "原油", "天然气", "铜",
+            "黄金", "钯", "大宗", "通胀", "加息", "降息", "央行", "汇率",
+            "勒索", "漏洞", "网络攻击", "疫情", "地震", "火灾", "罢工", "停产",
+        )
+        return any(keyword in text for keyword in material_keywords)
+
+    def _should_auto_analyze_event(self, event: Dict[str, Any]) -> bool:
+        if not settings.MARKET_INTELLIGENCE_AUTO_EVENT_ANALYSIS_ENABLED:
+            return False
+        if not event.get("event_id") or not event.get("title"):
+            return False
+        if not self._event_has_material_investment_signal(event):
+            return False
+        severity = _safe_float(event.get("severity"))
+        focus = _safe_float(event.get("focus_score"))
+        min_severity = settings.MARKET_INTELLIGENCE_EVENT_AUTO_ANALYSIS_MIN_SEVERITY
+        return (
+            severity >= min_severity
+            or focus >= max(62, min_severity + 8)
+            or event.get("source_category") in {"cyber", "positioning", "maritime", "defense", "osint", "global_macro", "markets_news"}
+        )
+
+    async def queue_event_impact_analysis(
+        self,
+        events: List[Dict[str, Any]],
+        *,
+        queue_source: str = "scheduler",
+        force: bool = False,
+        kick: bool = True,
+        research_task_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Queue material global events for asynchronous impact analysis."""
+        await self._ensure_indexes()
+        if not events:
+            return {"queued": 0, "skipped": 0, "reason": "no_events"}
+
+        now = _utc_now()
+        eligible = [event for event in events if force or self._should_auto_analyze_event(event)]
+        eligible.sort(
+            key=lambda event: (
+                self._event_analysis_priority(event),
+                _parse_dt(event.get("published_at")),
+            ),
+            reverse=True,
+        )
+        max_per_run = settings.MARKET_INTELLIGENCE_EVENT_ANALYSIS_MAX_QUEUE_PER_RUN
+        limited = eligible[:max_per_run]
+        task_service = None
+        queued = 0
+        skipped_ready = 0
+        skipped_active = 0
+        skipped_duplicate = 0
+        skipped_noise = 0
+        seen_title_keys = set()
+
+        for event in limited:
+            event_id = str(event.get("event_id") or "")
+            if not event_id:
+                continue
+            category = str(event.get("source_category") or "").strip()
+            if self._is_non_event_title(event.get("title"), category):
+                skipped_noise += 1
+                continue
+            title_key = self._event_title_key(event.get("title"))
+            if title_key and title_key in seen_title_keys:
+                skipped_duplicate += 1
+                continue
+            if title_key:
+                same_title = await self.db.event_impact_analyses.find_one({
+                    "event_title_key": title_key,
+                    "event_id": {"$ne": event_id},
+                    "status": {"$in": ["queued", "running", "ready", "partial"]},
+                })
+                if same_title:
+                    skipped_duplicate += 1
+                    continue
+            existing = await self.db.event_impact_analyses.find_one({"event_id": event_id})
+            task_id = research_task_id
+            if force:
+                if existing and existing.get("research_task_id") and not task_id:
+                    task_id = str(existing.get("research_task_id"))
+                await self.db.event_impact_analyses.delete_one({"event_id": event_id})
+                existing = None
+            elif existing:
+                if existing.get("event_title") and existing.get("event_title") != event.get("title"):
+                    await self.db.event_impact_analyses.delete_one({"event_id": event_id})
+                    existing = None
+                elif existing.get("status") in {"ready", "partial"}:
+                    skipped_ready += 1
+                    continue
+                elif existing.get("status") in {"queued", "running"}:
+                    skipped_active += 1
+                    continue
+
+            if not task_id:
+                try:
+                    if task_service is None:
+                        from app.services.research_task_service import get_research_task_service
+                        task_service = get_research_task_service()
+                    task = await task_service.create_task(
+                        user_id="system",
+                        title=f"事件影响分析：{event.get('title') or event_id}",
+                        module="market_intelligence",
+                        task_type="event_impact_analysis",
+                        parameters={
+                            "event_id": event_id,
+                            "queue_source": queue_source,
+                            "auto": queue_source != "manual",
+                        },
+                        related_id=event_id,
+                        route_path="/market-intelligence",
+                        source="scheduler" if queue_source != "manual" else "manual",
+                        tags=["市场情报", "事件分析", "自动队列" if queue_source != "manual" else "手动触发"],
+                    )
+                    task_id = task.get("task_id")
+                except Exception as exc:
+                    logger.warning("创建事件分析任务记录失败(%s): %s", event_id, exc)
+
+            await self.db.event_impact_analyses.update_one(
+                {"event_id": event_id},
+                {"$set": {
+                    "event_id": event_id,
+                    "event_title": event.get("title"),
+                    "event_title_key": title_key,
+                    "status": "queued",
+                    "priority": self._event_analysis_priority(event),
+                    "queued_at": now,
+                    "updated_at": now,
+                    "queue_source": queue_source,
+                    "research_task_id": task_id,
+                    "event": _jsonable(event),
+                }},
+                upsert=True,
+            )
+            queued += 1
+            if title_key:
+                seen_title_keys.add(title_key)
+
+        if queued and kick:
+            self.kick_event_analysis_queue(reason=queue_source)
+
+        return {
+            "queued": queued,
+            "eligible": len(eligible),
+            "considered": len(events),
+            "skipped_ready": skipped_ready,
+            "skipped_active": skipped_active,
+            "skipped_duplicate": skipped_duplicate,
+            "skipped_noise": skipped_noise,
+            "max_per_run": max_per_run,
+        }
+
+    def kick_event_analysis_queue(self, *, reason: str = "kick") -> None:
+        if not settings.MARKET_INTELLIGENCE_AUTO_EVENT_ANALYSIS_ENABLED:
+            return
+        if self._event_analysis_drain_task and not self._event_analysis_drain_task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._event_analysis_drain_task = loop.create_task(self.drain_event_analysis_queue(reason=reason))
+
+    async def drain_event_analysis_queue(self, *, reason: str = "scheduler") -> Dict[str, Any]:
+        """Drain queued event-impact analyses with bounded concurrency."""
+        await self._ensure_indexes()
+        if self._event_analysis_lock is None:
+            self._event_analysis_lock = asyncio.Lock()
+        if self._event_analysis_lock.locked():
+            return {"started": 0, "reason": reason, "skipped": "already_running"}
+
+        async with self._event_analysis_lock:
+            now = _utc_now()
+            stale_cutoff = now - timedelta(minutes=settings.MARKET_INTELLIGENCE_EVENT_ANALYSIS_STALE_MINUTES)
+            await self.db.event_impact_analyses.update_many(
+                {"status": "running", "updated_at": {"$lt": stale_cutoff}},
+                {"$set": {
+                    "status": "queued",
+                    "queued_at": now,
+                    "updated_at": now,
+                    "retry_reason": "stale_running",
+                }},
+            )
+            running_count = await self.db.event_impact_analyses.count_documents({
+                "status": "running",
+                "updated_at": {"$gte": stale_cutoff},
+            })
+            slots = max(0, settings.MARKET_INTELLIGENCE_EVENT_ANALYSIS_CONCURRENCY - running_count)
+            if slots <= 0:
+                return {"started": 0, "running": running_count, "reason": reason}
+            queued_docs = await self.db.event_impact_analyses.find(
+                {"status": "queued"}
+            ).sort([("priority", -1), ("queued_at", 1)]).limit(slots).to_list(length=slots)
+            if not queued_docs:
+                return {"started": 0, "running": running_count, "reason": reason}
+            results = await asyncio.gather(
+                *(self._run_queued_event_analysis(doc, reason=reason) for doc in queued_docs),
+                return_exceptions=True,
+            )
+            failed = sum(1 for item in results if isinstance(item, Exception) or (isinstance(item, dict) and item.get("status") == "error"))
+            return {"started": len(queued_docs), "failed": failed, "running": running_count, "reason": reason}
+
+    async def _run_queued_event_analysis(self, queue_doc: Dict[str, Any], *, reason: str) -> Dict[str, Any]:
+        event_id = str(queue_doc.get("event_id") or "")
+        if not event_id:
+            return {"status": "skipped", "reason": "missing_event_id"}
+        claim_token = str(uuid.uuid4())
+        now = _utc_now()
+        claim = await self.db.event_impact_analyses.update_one(
+            {"event_id": event_id, "status": "queued"},
+            {"$set": {
+                "status": "running",
+                "updated_at": now,
+                "started_at": now,
+                "claim_token": claim_token,
+                "worker_reason": reason,
+            }},
+        )
+        if not claim.modified_count:
+            return {"status": "skipped", "event_id": event_id, "reason": "not_queued"}
+
+        task_id = queue_doc.get("research_task_id")
+        task_service = None
+        try:
+            if task_id:
+                from app.services.research_task_service import get_research_task_service
+                task_service = get_research_task_service()
+                await task_service.mark_processing(str(task_id), "后台正在分析事件影响链", progress=25)
+            analysis = await self.analyze_event_impact(event_id, force=False, claim_token=claim_token)
+            if task_id and task_service:
+                await task_service.mark_completed(
+                    str(task_id),
+                    result={**analysis, "route_path": "/market-intelligence"},
+                    message="事件影响分析完成",
+                )
+            return {"status": analysis.get("status"), "event_id": event_id}
+        except Exception as exc:
+            logger.error("事件影响分析队列执行失败(%s): %s", event_id, exc, exc_info=True)
+            await self.db.event_impact_analyses.update_one(
+                {"event_id": event_id},
+                {"$set": {
+                    "status": "error",
+                    "updated_at": _utc_now(),
+                    "error": str(exc),
+                }},
+            )
+            if task_id:
+                try:
+                    if task_service is None:
+                        from app.services.research_task_service import get_research_task_service
+                        task_service = get_research_task_service()
+                    await task_service.mark_failed(str(task_id), str(exc))
+                except Exception:
+                    pass
+            return {"status": "error", "event_id": event_id, "error": str(exc)}
 
     def _extract_global_events(self, documents: List[Dict[str, Any]], window_start: datetime) -> List[Dict[str, Any]]:
         events: List[Dict[str, Any]] = []
