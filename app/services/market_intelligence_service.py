@@ -458,8 +458,8 @@ class MarketIntelligenceService:
             for status in public_statuses:
                 c = counter(str(status.get("source") or "public_source"))
                 c.fetched += int(status.get("fetched") or 0)
-                c.saved += int(status.get("saved") or 0)
                 c.failed += int(status.get("failed") or 0)
+                c.latest_publish_time = status.get("latest_publish_time")
                 c.message = str(status.get("message") or "")
 
             documents.extend(self._normalize_news_documents(market_news, "news", window_start))
@@ -478,10 +478,15 @@ class MarketIntelligenceService:
             global_events = self._extract_global_events(documents, window_start)
             counter("global_events").fetched = len(global_events)
 
-            saved_documents = await self._save_documents(documents)
+            saved_documents, saved_by_source = await self._save_documents(documents)
             saved_events = await self._save_global_events(global_events)
             await self._persist_rolling_sources(daily, market_news, stock_news, announcements, reports, guba_posts)
             counter("market_documents").saved = saved_documents
+            for status in public_statuses:
+                source_name = str(status.get("source") or "").replace("public:", "", 1)
+                counter(str(status.get("source") or "public_source")).saved = saved_by_source.get(source_name, 0)
+            public_source_names = {str(item.get("source") or "") for item in public_items}
+            counter("public_global_sources").saved = sum(saved_by_source.get(name, 0) for name in public_source_names)
             counter("global_events").saved = saved_events
 
             signals = await self._recompute_signals(window_hours=36)
@@ -1405,8 +1410,9 @@ class MarketIntelligenceService:
             "metadata": metadata,
         }
 
-    async def _save_documents(self, documents: List[Dict[str, Any]]) -> int:
+    async def _save_documents(self, documents: List[Dict[str, Any]]) -> Tuple[int, Dict[str, int]]:
         saved = 0
+        saved_by_source: Dict[str, int] = {}
         for doc in documents:
             result = await self.db.market_documents.replace_one(
                 {"doc_key": doc["doc_key"]},
@@ -1415,7 +1421,9 @@ class MarketIntelligenceService:
             )
             if result.upserted_id or result.modified_count:
                 saved += 1
-        return saved
+                source = str(doc.get("source") or doc.get("data_source") or "未知来源")
+                saved_by_source[source] = saved_by_source.get(source, 0) + 1
+        return saved, saved_by_source
 
     async def _save_global_events(self, events: List[Dict[str, Any]]) -> int:
         saved = 0
