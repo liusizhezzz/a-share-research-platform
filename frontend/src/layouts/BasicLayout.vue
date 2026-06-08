@@ -1,5 +1,5 @@
 <template>
-  <div class="basic-layout">
+  <div class="basic-layout" :class="{ 'research-shell': isResearchWorkspace }">
     <!-- 侧边栏 -->
     <aside
       class="sidebar"
@@ -134,6 +134,45 @@ watch(() => route.fullPath, () => {
 .basic-layout {
   min-height: 100vh;
   background-color: var(--el-bg-color-page);
+
+  &.research-shell {
+    background:
+      linear-gradient(180deg, #0c1320 0%, #0e1622 48%, #101722 100%);
+
+    .sidebar {
+      background: #0b1220;
+      border-right-color: rgba(130, 158, 198, 0.18);
+      box-shadow: 14px 0 38px rgba(0, 0, 0, 0.22);
+
+      .sidebar-header {
+        border-bottom-color: rgba(130, 158, 198, 0.14);
+
+        .logo-text {
+          color: #eef5ff;
+        }
+      }
+
+      .sidebar-footer {
+        border-top-color: rgba(130, 158, 198, 0.14);
+      }
+    }
+
+    .header {
+      background: rgba(11, 18, 32, 0.92);
+      border-bottom-color: rgba(130, 158, 198, 0.16);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+      backdrop-filter: blur(14px);
+    }
+
+    .main-content {
+      padding: 18px 20px 28px;
+    }
+
+    .footer {
+      background: #0b1220;
+      border-top-color: rgba(130, 158, 198, 0.14);
+    }
+  }
 }
 
 .sidebar-overlay {

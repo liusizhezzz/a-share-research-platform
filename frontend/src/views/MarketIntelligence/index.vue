@@ -755,10 +755,10 @@ onBeforeUnmount(() => {
 <style scoped lang="scss">
 .market-intelligence {
   min-height: 100%;
-  padding: 22px;
+  padding: 0;
   color: #dce7f7;
   background:
-    linear-gradient(180deg, #101724 0%, #0f1724 42%, #111827 100%);
+    linear-gradient(180deg, #0c1320 0%, #0d1521 48%, #101722 100%);
 }
 
 .page-header {
@@ -766,13 +766,20 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
+  padding: 20px 22px;
   margin-bottom: 16px;
+  border: 1px solid rgba(131, 160, 202, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(20, 38, 64, 0.96), rgba(12, 20, 34, 0.96) 58%, rgba(16, 35, 44, 0.92));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
 
   h1 {
     margin: 0;
-    font-size: 26px;
-    font-weight: 750;
+    font-size: 28px;
+    font-weight: 780;
     letter-spacing: 0;
+    color: #f6f9ff;
   }
 
   p {
@@ -813,12 +820,34 @@ onBeforeUnmount(() => {
 .panel {
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 8px;
-  background: rgba(15, 23, 36, 0.86);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.2);
+  background: rgba(12, 20, 33, 0.9);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.22);
 }
 
 .kpi-panel {
+  position: relative;
+  overflow: hidden;
   padding: 15px;
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: #37d4b5;
+  }
+
+  &:nth-child(2)::before {
+    background: #f16375;
+  }
+
+  &:nth-child(3)::before {
+    background: #7aa7ff;
+  }
+
+  &:nth-child(4)::before {
+    background: #f5b24c;
+  }
 }
 
 .clickable {
@@ -847,7 +876,7 @@ onBeforeUnmount(() => {
 
 .kpi-value {
   margin-top: 8px;
-  font-size: 28px;
+  font-size: 30px;
   font-weight: 760;
   color: #f4f8ff;
 
@@ -870,6 +899,8 @@ onBeforeUnmount(() => {
   align-items: center;
   padding: 16px;
   margin-bottom: 14px;
+  background:
+    linear-gradient(90deg, rgba(15, 30, 50, 0.94), rgba(12, 20, 33, 0.92));
 }
 
 .summary-title {
@@ -891,6 +922,7 @@ onBeforeUnmount(() => {
   span {
     padding: 6px 9px;
     border-radius: 8px;
+    border: 1px solid rgba(110, 150, 208, 0.18);
     background: rgba(57, 116, 216, 0.12);
     color: #a9b8d0;
     font-size: 12px;
@@ -924,7 +956,8 @@ onBeforeUnmount(() => {
   text-align: left;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 8px;
-  background: rgba(2, 6, 23, 0.26);
+  background:
+    linear-gradient(180deg, rgba(16, 28, 46, 0.78), rgba(8, 14, 24, 0.76));
   color: inherit;
   cursor: pointer;
 
@@ -982,7 +1015,7 @@ onBeforeUnmount(() => {
 
 .panel {
   min-width: 0;
-  padding: 14px;
+  padding: 15px;
 }
 
 .panel-header {
@@ -991,9 +1024,14 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   min-height: 32px;
-  margin-bottom: 12px;
+  margin-bottom: 13px;
   font-weight: 720;
   color: #f4f8ff;
+  letter-spacing: 0;
+
+  span {
+    min-width: 0;
+  }
 }
 
 .panel-actions {
@@ -1003,7 +1041,10 @@ onBeforeUnmount(() => {
 }
 
 .map-panel {
-  min-height: 640px;
+  min-height: 720px;
+  padding: 12px;
+  background:
+    linear-gradient(180deg, rgba(11, 20, 34, 0.96), rgba(6, 12, 22, 0.98));
 }
 
 .impact-panel {
@@ -1019,7 +1060,8 @@ onBeforeUnmount(() => {
   margin-bottom: 10px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 8px;
-  background: rgba(2, 6, 23, 0.3);
+  background:
+    linear-gradient(180deg, rgba(20, 34, 55, 0.78), rgba(8, 14, 24, 0.7));
 
   h2 {
     margin: 10px 0 6px;
@@ -1123,10 +1165,38 @@ onBeforeUnmount(() => {
   border-radius: 8px;
 }
 
+:deep(.el-table th.el-table__cell) {
+  background: rgba(14, 24, 39, 0.98);
+}
+
+:deep(.el-table tr:hover > td.el-table__cell) {
+  background: rgba(57, 116, 216, 0.12);
+}
+
 :deep(.el-input__wrapper),
 :deep(.el-select__wrapper) {
   background: rgba(15, 23, 36, 0.88);
   box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.26) inset;
+}
+
+:deep(.el-button:not(.el-button--primary):not(.is-text)) {
+  border-color: rgba(128, 159, 204, 0.28);
+  background: rgba(13, 24, 40, 0.88);
+  color: #d5e3f7;
+}
+
+:deep(.el-button:not(.el-button--primary):not(.is-text):hover) {
+  border-color: rgba(96, 165, 250, 0.62);
+  background: rgba(37, 99, 235, 0.22);
+  color: #ffffff;
+}
+
+:deep(.el-button.is-text) {
+  color: #9fc7ff;
+}
+
+:deep(.el-tag) {
+  border-radius: 6px;
 }
 
 @media (max-width: 1180px) {
@@ -1146,7 +1216,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 760px) {
   .market-intelligence {
-    padding: 14px;
+    padding: 0;
   }
 
   .page-header,

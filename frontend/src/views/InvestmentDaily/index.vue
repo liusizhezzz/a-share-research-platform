@@ -467,7 +467,11 @@ onMounted(loadLatest)
 
 <style scoped lang="scss">
 .investment-daily {
-  padding: 24px;
+  min-height: 100%;
+  padding: 0;
+  color: #dce7f7;
+  background:
+    linear-gradient(180deg, #0c1320 0%, #0e1622 50%, #101722 100%);
 }
 
 .page-header {
@@ -475,17 +479,26 @@ onMounted(loadLatest)
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  margin-bottom: 20px;
+  padding: 20px 22px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(131, 160, 202, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(20, 38, 64, 0.96), rgba(12, 20, 34, 0.96) 58%, rgba(38, 31, 18, 0.92));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
 
   h1 {
     margin: 0;
-    font-size: 24px;
-    font-weight: 650;
+    font-size: 28px;
+    font-weight: 780;
+    color: #f6f9ff;
+    letter-spacing: 0;
   }
 
   p {
     margin: 6px 0 0;
-    color: var(--el-text-color-secondary);
+    color: #92a0b8;
+    line-height: 1.55;
   }
 }
 
@@ -503,21 +516,24 @@ onMounted(loadLatest)
   align-items: stretch;
   padding: 18px 20px;
   margin-bottom: 16px;
-  background: var(--el-fill-color-blank);
-  border: 1px solid var(--el-border-color-light);
+  background:
+    linear-gradient(90deg, rgba(15, 30, 50, 0.94), rgba(12, 20, 33, 0.92));
+  border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 8px;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.22);
 }
 
 .report-date {
   font-size: 18px;
   font-weight: 650;
   margin-bottom: 8px;
+  color: #f4f8ff;
 }
 
 .summary-text {
   font-size: 15px;
   line-height: 1.7;
-  color: var(--el-text-color-primary);
+  color: #c7d3e6;
 }
 
 .meta-row {
@@ -526,7 +542,7 @@ onMounted(loadLatest)
   flex-wrap: wrap;
   margin-top: 12px;
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: #8fa1bb;
 }
 
 .temperature {
@@ -534,7 +550,7 @@ onMounted(loadLatest)
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border-left: 1px solid var(--el-border-color-lighter);
+  border-left: 1px solid rgba(148, 163, 184, 0.18);
 }
 
 .temperature-button {
@@ -549,11 +565,11 @@ onMounted(loadLatest)
 .temperature-value {
   font-size: 34px;
   font-weight: 700;
-  color: var(--el-color-primary);
+  color: #37d4b5;
 }
 
 .temperature-label {
-  color: var(--el-text-color-secondary);
+  color: #8fa1bb;
   font-size: 13px;
 }
 
@@ -563,13 +579,18 @@ onMounted(loadLatest)
 
 .panel {
   height: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 8px;
+  background: rgba(12, 20, 33, 0.9);
+  color: #dce7f7;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.2);
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  color: #f4f8ff;
 
   span {
     display: inline-flex;
@@ -586,11 +607,22 @@ onMounted(loadLatest)
 }
 
 .direction-item {
+  position: relative;
+  overflow: hidden;
   min-height: 112px;
   padding: 12px;
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 8px;
-  background: var(--el-fill-color-light);
+  background:
+    linear-gradient(180deg, rgba(16, 28, 46, 0.82), rgba(8, 14, 24, 0.78));
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    height: 2px;
+    background: linear-gradient(90deg, #37d4b5, #7aa7ff);
+  }
 }
 
 .direction-top {
@@ -606,7 +638,7 @@ onMounted(loadLatest)
 .stock-source,
 .news-meta {
   margin-top: 4px;
-  color: var(--el-text-color-secondary);
+  color: #8fa1bb;
   font-size: 12px;
   line-height: 1.5;
 }
@@ -654,7 +686,7 @@ onMounted(loadLatest)
   color: inherit;
   text-decoration: none;
   padding-bottom: 10px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
 
   &:last-child {
     border-bottom: none;
@@ -670,6 +702,7 @@ onMounted(loadLatest)
 .news-title {
   font-weight: 500;
   line-height: 1.5;
+  color: #f4f8ff;
 }
 
 .news-grid {
@@ -684,14 +717,22 @@ onMounted(loadLatest)
   padding: 12px;
   color: inherit;
   text-decoration: none;
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 8px;
   min-height: 96px;
+  background:
+    linear-gradient(180deg, rgba(16, 28, 46, 0.74), rgba(8, 14, 24, 0.72));
+
+  &:hover {
+    border-color: rgba(96, 165, 250, 0.5);
+    background: rgba(57, 116, 216, 0.12);
+  }
 }
 
 .news-card-title {
   line-height: 1.5;
   font-weight: 500;
+  color: #f4f8ff;
 }
 
 .news-card-meta,
@@ -700,14 +741,16 @@ onMounted(loadLatest)
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  color: var(--el-text-color-secondary);
+  color: #8fa1bb;
   font-size: 12px;
 }
 
 .risk-item {
   padding: 10px 12px;
-  background: var(--el-fill-color-light);
+  border: 1px solid rgba(240, 163, 58, 0.18);
+  background: rgba(240, 163, 58, 0.08);
   border-radius: 8px;
+  color: #efc782;
   line-height: 1.6;
 }
 
@@ -719,9 +762,10 @@ onMounted(loadLatest)
 
 .cluster-item {
   padding: 12px;
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 8px;
-  background: var(--el-fill-color-light);
+  background:
+    linear-gradient(180deg, rgba(16, 28, 46, 0.78), rgba(8, 14, 24, 0.76));
 }
 
 .cluster-title {
@@ -734,7 +778,7 @@ onMounted(loadLatest)
   gap: 10px;
   flex-wrap: wrap;
   margin-top: 6px;
-  color: var(--el-text-color-secondary);
+  color: #8fa1bb;
   font-size: 12px;
 }
 
@@ -771,9 +815,63 @@ onMounted(loadLatest)
   font-size: 12px;
 }
 
+:deep(.el-card.panel) {
+  --el-card-bg-color: rgba(12, 20, 33, 0.9);
+  --el-card-border-color: rgba(148, 163, 184, 0.18);
+}
+
+:deep(.el-card__header) {
+  border-bottom-color: rgba(148, 163, 184, 0.16);
+  background: rgba(14, 24, 39, 0.42);
+}
+
+:deep(.el-card__body) {
+  color: #dce7f7;
+}
+
+:deep(.el-table) {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: rgba(17, 24, 39, 0.96);
+  --el-table-text-color: #cbd6e7;
+  --el-table-header-text-color: #9fb0c8;
+  --el-table-border-color: rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+}
+
+:deep(.el-table th.el-table__cell) {
+  background: rgba(14, 24, 39, 0.98);
+}
+
+:deep(.el-table tr:hover > td.el-table__cell) {
+  background: rgba(57, 116, 216, 0.12);
+}
+
+:deep(.el-input__wrapper),
+:deep(.el-select__wrapper) {
+  background: rgba(15, 23, 36, 0.88);
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.26) inset;
+}
+
+:deep(.el-button:not(.el-button--primary):not(.is-text)) {
+  border-color: rgba(128, 159, 204, 0.28);
+  background: rgba(13, 24, 40, 0.88);
+  color: #d5e3f7;
+}
+
+:deep(.el-button:not(.el-button--primary):not(.is-text):hover) {
+  border-color: rgba(96, 165, 250, 0.62);
+  background: rgba(37, 99, 235, 0.22);
+  color: #ffffff;
+}
+
+:deep(.el-tag) {
+  border-radius: 6px;
+}
+
 @media (max-width: 900px) {
   .investment-daily {
-    padding: 16px;
+    padding: 0;
   }
 
   .page-header,

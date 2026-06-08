@@ -110,7 +110,7 @@ const emit = defineEmits<{
 const mapContainer = ref<HTMLDivElement>()
 const fallbackMode = ref(false)
 const activeBasemap = ref<WorldMonitorBasemapId>(
-  (localStorage.getItem('market-intelligence-basemap') as WorldMonitorBasemapId | null) || 'carto-vector'
+  (localStorage.getItem('market-intelligence-basemap') as WorldMonitorBasemapId | null) || 'gaode-cn'
 )
 const activeView = ref<WorldMonitorViewId>('global')
 let map: maplibregl.Map | null = null
@@ -422,7 +422,7 @@ onMounted(async () => {
       pitchWithRotate: false,
       canvasContextAttributes: { powerPreference: 'high-performance' }
     })
-    fallbackMode.value = false
+    fallbackMode.value = true
   } catch (error) {
     console.warn('全球事件地图加载失败，使用降级渲染:', error)
     fallbackMode.value = true
@@ -432,6 +432,7 @@ onMounted(async () => {
   scheduleBasemapFallback()
   map.on('error', (error) => {
     console.warn('World Monitor 地图资源加载告警:', error)
+    fallbackMode.value = true
   })
   try {
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
@@ -487,12 +488,12 @@ watch(
 <style scoped lang="scss">
 .event-map {
   position: relative;
-  min-height: 430px;
+  min-height: 600px;
   height: 100%;
   overflow: hidden;
   border-radius: 8px;
   background:
-    linear-gradient(180deg, rgba(10, 18, 30, 0.85), rgba(10, 18, 30, 0.95)),
+    linear-gradient(180deg, rgba(8, 15, 27, 0.92), rgba(7, 13, 23, 0.98)),
     #0b1320;
 }
 
@@ -561,9 +562,7 @@ watch(
 
 .fallback-map {
   z-index: 1;
-  background:
-    radial-gradient(circle at 30% 35%, rgba(57, 116, 216, 0.18), transparent 28%),
-    #0b1320;
+  background: #07111f;
 }
 
 .fallback-world {
@@ -575,13 +574,13 @@ watch(
 
 .fallback-grid-line {
   fill: none;
-  stroke: rgba(91, 124, 169, 0.28);
+  stroke: rgba(91, 124, 169, 0.22);
   stroke-width: 1;
 }
 
 .fallback-land {
-  fill: rgba(33, 74, 112, 0.64);
-  stroke: rgba(116, 163, 219, 0.45);
+  fill: rgba(36, 83, 122, 0.68);
+  stroke: rgba(138, 184, 234, 0.58);
   stroke-width: 1.2;
 }
 
