@@ -19,10 +19,16 @@ COPY docs /app/docs
 # 开始构建 (这一步最吃内存，现在有Swap支持了)
 RUN yarn vite build
 
+# 给入口资源增加构建版本，避免浏览器缓存旧主包后继续请求已删除的 chunk。
+ARG FRONTEND_BUILD_VERSION
+RUN stamp="${FRONTEND_BUILD_VERSION:-$(date +%Y%m%d%H%M%S)}" && \
+    sed -i -E "s#(/js/index-[^\"]+\\.js)(\\?v=[^\"]*)?\"#\\1?v=${stamp}\"#; s#(/css/index-[^\"]+\\.css)(\\?v=[^\"]*)?\"#\\1?v=${stamp}\"#" dist/index.html
+
 # --- 运行阶段 ---
 FROM nginx:alpine
 RUN apk add --no-cache curl
 WORKDIR /usr/share/nginx/html
 COPY --from=build /app/frontend/dist .
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
