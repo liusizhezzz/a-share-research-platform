@@ -163,6 +163,43 @@ HIGH_SEVERITY_WORDS = {
     "暴跌", "地震", "火灾", "台风", "洪水", "紧急", "突发", "危机",
 }
 
+CORE_CATALYST_KEYWORDS: Dict[str, List[str]] = {
+    "战争/地缘冲突": [
+        "战争", "冲突", "袭击", "空袭", "导弹", "爆炸", "开战", "停火", "制裁", "反制",
+        "封锁", "军事行动", "geopolitical", "war", "conflict", "strike", "sanction", "blockade",
+    ],
+    "运输/供应链中断": [
+        "霍尔木兹", "红海", "苏伊士", "马六甲", "巴拿马运河", "航道", "港口关闭", "停航",
+        "运输中断", "供应中断", "断供", "管道", "pipeline", "shipping disruption", "chokepoint",
+    ],
+    "公司结构重组": [
+        "重大资产重组", "资产重组", "资产注入", "并购", "收购", "股权转让", "实控人变更",
+        "破产重整", "分拆上市", "借壳", "控制权变更", "merger", "acquisition", "restructuring",
+    ],
+    "核心人事变动": [
+        "创始人", "董事长", "首席执行官", "CEO", "核心技术人员", "实控人", "离世", "去世",
+        "辞职", "被调查", "失联", "founder", "chairman", "chief executive", "resigns", "dies",
+    ],
+    "重大政策/监管": [
+        "出口管制", "禁令", "关税", "反倾销", "监管新规", "产业政策", "补贴退坡", "贸易限制",
+        "export control", "tariff", "ban", "regulation", "subsidy", "policy shock",
+    ],
+    "重大产能/安全事故": [
+        "停产", "事故", "爆雷", "召回", "产能瓶颈", "供不应求", "价格大涨", "价格暴跌",
+        "shutdown", "accident", "recall", "shortage", "supply crunch",
+    ],
+}
+
+MINOR_CATALYST_KEYWORDS = {
+    "小额订单", "小额中标", "常规会议", "工作会议", "交流会", "座谈会", "调研活动",
+    "荣誉", "表彰", "获奖", "入选名单", "协会", "签署框架协议", "战略合作协议",
+    "现金管理", "理财产品", "自有资金", "闲置募集资金", "万元", "点赞", "冲高",
+    "涨停了", "太猛了", "幻想", "错过了", "流量",
+}
+
+CORE_DOCUMENT_TYPES = {"announcement", "research_report", "news", "stock_news"}
+MINOR_DOCUMENT_TYPES = {"social_comment"}
+
 SOURCE_WEIGHTS = {
     "财联社": 1.18,
     "证券时报": 1.15,
@@ -1592,11 +1629,122 @@ class MarketIntelligenceService:
 
     def _stock_methodology(self) -> Dict[str, Any]:
         return {
-            "formula": "22%中长线基本面/产业位势 + 18%主题/事件暴露 + 14%新闻/研报/公告证据 + 10%民众评论 + 15%资金确认 + 11%量价结构 + 10%供应链/出口暴露 - 风险反噬 - price-in惩罚",
-            "normalization_method": "候选池先做全市场扫描，再叠加事件推导范围；数量类因子使用sigmoid，估值/市值/换手映射为中长线位势，情绪从[-1,1]映射到[0,100]，禁止简单min(100, raw)打满分",
-            "prediction_horizon": "中长线1-3个月；事件催化跟踪1-3个交易日",
-            "not_buy_rule": "已大涨或涨停股票只有在新增催化、资金确认且price-in惩罚较低时保留为候选；缺少直接新闻不再给0分，但会降低证据分和置信度",
+            "formula": "30%中长线基本面/产业位势 + 20%重磅事件/长期方向暴露 + 15%新闻/研报/公告证据质量 + 12%供应链/出口暴露 + 10%主题景气 + 8%资金确认 + 4%量价结构 + 3%民众评论 - 风险反噬 - price-in惩罚",
+            "normalization_method": "候选池每次从全市场行情和基础库重算，再叠加事件推导范围；重磅事件按核心/重要/辅助/噪声分层，数量类因子使用sigmoid，估值/市值/换手映射为中长线位势，评论只做低权重辅助，禁止简单min(100, raw)打满分",
+            "prediction_horizon": "中长线1-3个月为主；重大事件催化跟踪下一次开盘至1-3个交易日",
+            "not_buy_rule": "已大涨或涨停股票只有在新增核心催化、资金确认且price-in惩罚较低时保留为候选；评论独热、小订单、常规会议、荣誉表彰不进入核心分析逻辑",
+            "materiality_rule": "核心催化包括战争/地缘冲突、运输与供应链中断、公司结构重组、核心人事变动、重大政策监管和重大产能/安全事故；小额订单、常规会议、荣誉表彰、短评情绪默认为辅助或噪声",
         }
+
+    def _materiality_profile_for_text(
+        self,
+        text: str,
+        *,
+        doc_type: str = "",
+        source: str = "",
+        influence_score: float = 0.0,
+        severity: float = 0.0,
+        published_at: Optional[Any] = None,
+        mapped_themes: Optional[List[str]] = None,
+        mapped_symbols: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        normalized = (text or "").lower()
+        score = 0.0
+        categories: List[str] = []
+        reasons: List[str] = []
+        for category, keywords in CORE_CATALYST_KEYWORDS.items():
+            matched = [keyword for keyword in keywords if keyword and keyword.lower() in normalized]
+            if matched:
+                categories.append(category)
+                reasons.append(f"{category}: {matched[0]}")
+                score += 24.0 + min(14.0, len(matched) * 4.0)
+
+        minor_matches = [keyword for keyword in MINOR_CATALYST_KEYWORDS if keyword and keyword.lower() in normalized]
+        if minor_matches:
+            score -= 18.0 + min(14.0, len(minor_matches) * 3.0)
+            reasons.append(f"非核心事项: {minor_matches[0]}")
+
+        if doc_type in CORE_DOCUMENT_TYPES:
+            score += 8.0
+        if doc_type in {"announcement", "research_report"}:
+            score += 8.0
+        if doc_type in MINOR_DOCUMENT_TYPES:
+            score -= 20.0
+            reasons.append("股吧/民众评论仅作低权重辅助")
+
+        source_weight = SOURCE_WEIGHTS.get(source, 1.0)
+        score += max(0.0, min(100.0, influence_score)) * 0.18
+        score += max(0.0, min(100.0, severity)) * 0.42
+        score += max(0.0, (source_weight - 1.0) * 26.0)
+
+        theme_count = len(mapped_themes or [])
+        symbol_count = len(mapped_symbols or [])
+        score += min(12.0, theme_count * 3.0 + symbol_count * 4.0)
+
+        published_dt = _parse_dt(published_at)
+        age_hours = max(0.0, (_utc_now() - published_dt).total_seconds() / 3600)
+        if age_hours <= 24:
+            score += 7.0
+        elif age_hours <= 72:
+            score += 4.0
+        elif age_hours > 168:
+            score -= 10.0
+
+        if minor_matches and not categories:
+            score = min(score, 12.0)
+
+        if score >= 58:
+            level = "core"
+            label = "核心催化"
+        elif score >= 36:
+            level = "important"
+            label = "重要变化"
+        elif score >= 16:
+            level = "supporting"
+            label = "辅助证据"
+        else:
+            level = "minor"
+            label = "非核心/噪声"
+
+        return {
+            "level": level,
+            "label": label,
+            "score": round(max(0.0, min(100.0, score)), 2),
+            "categories": list(dict.fromkeys(categories)) or ["待分类"],
+            "reason": "；".join(reasons[:3]) or "未触发核心事项关键词",
+            "age_hours": round(age_hours, 2),
+        }
+
+    def _document_materiality(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+        text = " ".join(
+            str(doc.get(field) or "")
+            for field in ["title", "summary", "content", "source", "data_source"]
+        )
+        return self._materiality_profile_for_text(
+            text,
+            doc_type=str(doc.get("document_type") or ""),
+            source=str(doc.get("source") or ""),
+            influence_score=_finite_float(doc.get("influence_score")),
+            published_at=doc.get("published_at"),
+            mapped_themes=doc.get("themes") or [],
+            mapped_symbols=doc.get("symbols") or [],
+        )
+
+    def _event_materiality(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        text = " ".join(
+            str(event.get(field) or "")
+            for field in ["title", "summary", "location_name", "region", "country", "event_type"]
+        )
+        return self._materiality_profile_for_text(
+            text,
+            doc_type="global_event",
+            source=str(event.get("source") or ""),
+            influence_score=_finite_float(event.get("influence_score") or event.get("focus_score")),
+            severity=_finite_float(event.get("severity")),
+            published_at=event.get("published_at"),
+            mapped_themes=event.get("mapped_themes") or [],
+            mapped_symbols=event.get("mapped_stocks") or [],
+        )
 
     async def _event_evidence_docs(self, event: Dict[str, Any], *, limit: int = 60) -> List[Dict[str, Any]]:
         exact_key = event.get("document_key")
@@ -2540,8 +2688,19 @@ class MarketIntelligenceService:
         event_mapped_stocks: Dict[str, List[Dict[str, Any]]] = {}
         for event in events or []:
             severity = _finite_float(event.get("severity"))
+            materiality = self._event_materiality(event)
+            event["materiality_level"] = materiality["level"]
+            event["materiality_score"] = materiality["score"]
+            event["materiality_label"] = materiality["label"]
+            event_multiplier = {
+                "core": 1.08,
+                "important": 0.88,
+                "supporting": 0.48,
+                "minor": 0.22,
+            }.get(materiality["level"], 0.36)
+            event_signal = max(materiality["score"], severity * event_multiplier)
             for theme in event.get("mapped_themes") or []:
-                event_theme_scores[theme] = max(event_theme_scores.get(theme, 0.0), severity)
+                event_theme_scores[theme] = max(event_theme_scores.get(theme, 0.0), event_signal)
             for code in event.get("mapped_stocks") or []:
                 clean = _normalize_code(code)
                 if clean:
@@ -2566,11 +2725,17 @@ class MarketIntelligenceService:
                 "universe_sources": [],
                 "universe_reasons": [],
                 "raw_evidence_score": 0.0,
+                "materiality_score": 0.0,
+                "major_catalyst_score": 0.0,
+                "evidence_quality_score": 35.0,
                 "news_count": 0,
                 "comment_count": 0,
                 "research_count": 0,
                 "announcement_count": 0,
                 "quant_count": 0,
+                "core_event_count": 0,
+                "important_event_count": 0,
+                "minor_event_count": 0,
                 "sentiment_total": 0.0,
                 "sentiment_docs": 0,
                 "sentiment_score": 0.0,
@@ -2583,6 +2748,7 @@ class MarketIntelligenceService:
                 "supply_chain_score": 42.0,
                 "risk_score": 0.0,
                 "headlines": [],
+                "core_catalysts": [],
                 "documents": [],
                 "linked_events": [],
             })
@@ -2597,26 +2763,44 @@ class MarketIntelligenceService:
         for doc in documents:
             doc_symbols = [_normalize_code(code) for code in doc.get("symbols", [])]
             doc_symbols = [code for code in doc_symbols if code]
+            materiality = self._document_materiality(doc)
+            doc["materiality"] = materiality
+            materiality_weight = {
+                "core": 2.8,
+                "important": 1.8,
+                "supporting": 0.9,
+                "minor": 0.22,
+            }.get(materiality["level"], 0.6)
             for code in doc_symbols:
                 item = ensure_item(code)
                 if not item:
                     continue
-                add_source(item, "直接证据", "新闻/评论/研报/公告证据池直接提及该股票")
+                if materiality["level"] in {"core", "important"}:
+                    add_source(item, "核心证据", f"{materiality['label']}：{materiality['reason']}")
+                else:
+                    add_source(item, "直接证据", "新闻/评论/研报/公告证据池直接提及该股票")
                 doc_type = doc.get("document_type")
                 item["news_count"] += 1 if doc_type in {"news", "stock_news"} else 0
                 item["comment_count"] += 1 if doc_type == "social_comment" else 0
                 item["research_count"] += 1 if doc_type == "research_report" else 0
                 item["announcement_count"] += 1 if doc_type == "announcement" else 0
                 item["quant_count"] += 1 if doc_type == "quant_signal" else 0
+                item["core_event_count"] += 1 if materiality["level"] == "core" else 0
+                item["important_event_count"] += 1 if materiality["level"] == "important" else 0
+                item["minor_event_count"] += 1 if materiality["level"] == "minor" else 0
                 item["sentiment_total"] += _finite_float(doc.get("sentiment_score"))
                 item["sentiment_docs"] += 1
-                item["raw_evidence_score"] += 1 + _finite_float(doc.get("influence_score")) / 100
+                item["raw_evidence_score"] += materiality_weight + _finite_float(doc.get("influence_score")) / 120
+                item["materiality_score"] += materiality["score"] * materiality_weight / 2.0
+                item["major_catalyst_score"] = max(item["major_catalyst_score"], materiality["score"])
                 for theme in doc.get("themes", []):
                     if theme not in item["matched_themes"]:
                         item["matched_themes"].append(theme)
-                    item["raw_evidence_score"] += theme_score.get(theme, 0) / 100
+                    item["raw_evidence_score"] += theme_score.get(theme, 0) / (90 if materiality["level"] in {"core", "important"} else 180)
                 if len(item["headlines"]) < 5:
                     item["headlines"].append(doc.get("title"))
+                if materiality["level"] in {"core", "important"} and len(item["core_catalysts"]) < 5:
+                    item["core_catalysts"].append(f"{materiality['label']}｜{doc.get('title')}")
                 if len(item["documents"]) < 10:
                     item["documents"].append(_jsonable(doc))
 
@@ -2624,9 +2808,19 @@ class MarketIntelligenceService:
             item = ensure_item(code)
             if not item:
                 continue
-            add_source(item, "全球事件映射", "全球事件显式映射到该股票")
+            mapped_materialities = [self._event_materiality(event) for event in mapped_events]
+            strongest = max(mapped_materialities, key=lambda profile: profile["score"]) if mapped_materialities else {"level": "supporting", "label": "辅助证据", "score": 35.0, "reason": "全球事件映射"}
+            add_source(item, "全球事件映射", f"{strongest['label']}：全球事件显式映射到该股票")
             item["linked_events"].extend(_jsonable(event) for event in mapped_events[:4])
             for event in mapped_events:
+                materiality = self._event_materiality(event)
+                item["core_event_count"] += 1 if materiality["level"] == "core" else 0
+                item["important_event_count"] += 1 if materiality["level"] == "important" else 0
+                item["minor_event_count"] += 1 if materiality["level"] == "minor" else 0
+                item["major_catalyst_score"] = max(item["major_catalyst_score"], materiality["score"])
+                item["materiality_score"] += materiality["score"]
+                if materiality["level"] in {"core", "important"} and len(item["core_catalysts"]) < 5:
+                    item["core_catalysts"].append(f"{materiality['label']}｜{event.get('title')}")
                 for theme in event.get("mapped_themes") or []:
                     if theme not in item["matched_themes"]:
                         item["matched_themes"].append(theme)
@@ -2731,46 +2925,68 @@ class MarketIntelligenceService:
                 + item["announcement_count"]
                 + item["quant_count"]
             )
+            non_social_evidence_count = evidence_count - item["comment_count"]
+            core_change_count = item["core_event_count"] + item["important_event_count"]
+            comment_only = item["comment_count"] > 0 and non_social_evidence_count == 0 and core_change_count == 0
             sentiment_divisor = max(item["sentiment_docs"], 1)
             item["sentiment_score"] = round(item["sentiment_total"] / sentiment_divisor, 3)
             sentiment_component = max(0.0, min(100.0, 50 + item["sentiment_score"] * 50))
-            item["evidence_score"] = round(max(
+            evidence_quality_raw = (
+                item["news_count"]
+                + item["research_count"] * 2.0
+                + item["announcement_count"] * 2.4
+                + item["quant_count"] * 1.5
+                + item["core_event_count"] * 2.8
+                + item["important_event_count"] * 1.6
+                + min(item["comment_count"], 30) * 0.12
+                + item["raw_evidence_score"] * 0.72
+            )
+            item["evidence_quality_score"] = round(max(
                 32.0,
                 _sigmoid_score(
-                    item["news_count"]
-                    + item["research_count"] * 1.7
-                    + item["announcement_count"] * 2.0
-                    + item["quant_count"] * 1.3
-                    + item["raw_evidence_score"] * 0.7,
-                    midpoint=4.5,
-                    scale=3.4,
+                    evidence_quality_raw,
+                    midpoint=5.2,
+                    scale=3.6,
                 ),
             ), 2)
+            item["evidence_score"] = item["evidence_quality_score"]
             item["social_score"] = round(
-                _sigmoid_score(item["comment_count"], midpoint=18.0, scale=12.0)
+                min(72.0, _sigmoid_score(item["comment_count"], midpoint=30.0, scale=18.0))
                 if item["comment_count"]
-                else 38.0,
+                else 35.0,
                 2,
             )
             event_exposure = self._stock_event_exposure_score(item["matched_themes"], event_theme_scores, event_mapped_stocks.get(code, []))
-            item["event_exposure_score"] = round(event_exposure, 2)
+            materiality_component = max(
+                item["major_catalyst_score"],
+                _sigmoid_score(item["materiality_score"], midpoint=80.0, scale=58.0) if item["materiality_score"] else 35.0,
+            )
+            item["event_exposure_score"] = round(max(event_exposure, materiality_component), 2)
             theme_component = max(
                 [theme_score.get(theme, 38.0) for theme in item["matched_themes"]]
-                + [event_exposure * 0.9, 35.0]
+                + [item["event_exposure_score"] * 0.68, 35.0]
             )
             item["long_term_score"] = round(self._long_term_stock_score(basic, quote, item["matched_themes"]), 2)
             item["supply_chain_score"] = round(self._supply_chain_score(item["matched_themes"], event_theme_scores), 2)
             price_in_penalty = self._price_in_penalty(_finite_float(item.get("pct_chg")), evidence_count, item["event_exposure_score"])
+            pct_chg = _finite_float(item.get("pct_chg"))
+            if core_change_count == 0 and pct_chg >= 9.2:
+                price_in_penalty += 18.0
+            if comment_only and pct_chg > 6.5:
+                price_in_penalty += 15.0
             risk_score = self._stock_risk_score(item, basic, quote)
+            if comment_only:
+                risk_score += 8.0
             item["risk_score"] = round(risk_score, 2)
             score = (
-                item["long_term_score"] * 0.22
-                + theme_component * 0.18
-                + item["evidence_score"] * 0.14
-                + item["social_score"] * 0.10
-                + _finite_float(item.get("funds_score")) * 0.15
-                + _finite_float(item.get("price_score")) * 0.11
-                + item["supply_chain_score"] * 0.10
+                item["long_term_score"] * 0.30
+                + item["event_exposure_score"] * 0.20
+                + item["evidence_quality_score"] * 0.15
+                + item["supply_chain_score"] * 0.12
+                + theme_component * 0.10
+                + _finite_float(item.get("funds_score")) * 0.08
+                + _finite_float(item.get("price_score")) * 0.04
+                + item["social_score"] * 0.03
                 - risk_score
                 - price_in_penalty
             )
@@ -2778,11 +2994,12 @@ class MarketIntelligenceService:
             item["score"] = round(max(0, min(100, score)), 2)
             item["signal_strength"] = round(max(0, min(
                 100,
-                _finite_float(item.get("funds_score")) * 0.32
-                + _finite_float(item.get("price_score")) * 0.26
-                + item["evidence_score"] * 0.22
-                + sentiment_component * 0.10
-                + theme_component * 0.10
+                _finite_float(item.get("funds_score")) * 0.30
+                + _finite_float(item.get("price_score")) * 0.20
+                + item["evidence_quality_score"] * 0.20
+                + item["event_exposure_score"] * 0.18
+                + theme_component * 0.08
+                + item["social_score"] * 0.04
                 - price_in_penalty * 0.35
                 - risk_score * 0.25,
             )), 2)
@@ -2792,20 +3009,38 @@ class MarketIntelligenceService:
                 0.18
                 + (0.16 if basic else 0)
                 + (0.14 if quote else 0)
-                + min(evidence_count, 16) / 16 * 0.20
+                + min(non_social_evidence_count + core_change_count * 2, 16) / 16 * 0.20
                 + min(len(item["matched_themes"]), 3) * 0.06
                 + min(item["event_exposure_score"], 90) / 100 * 0.12,
             )), 3)
-            item["candidate_scope"] = "事件推导+全市场扫描" if item["matched_themes"] else "全市场扫描"
+            if item["core_event_count"]:
+                item["materiality_level"] = "核心催化"
+                item["candidate_scope"] = "核心事件推导+全市场长线扫描"
+            elif item["important_event_count"]:
+                item["materiality_level"] = "重要变化"
+                item["candidate_scope"] = "重要事件推导+全市场长线扫描"
+            elif comment_only:
+                item["materiality_level"] = "评论辅助"
+                item["candidate_scope"] = "评论辅助观察"
+            else:
+                item["materiality_level"] = "长线主题"
+                item["candidate_scope"] = "全市场长线扫描"
             item["universe_source"] = " / ".join(item["universe_sources"][:4])
-            item["candidate_reason"] = "；".join(item["universe_reasons"][:4])
+            if item["core_catalysts"]:
+                item["candidate_reason"] = "；".join(item["core_catalysts"][:3])
+            elif item["universe_reasons"]:
+                item["candidate_reason"] = "；".join(item["universe_reasons"][:4])
+            else:
+                item["candidate_reason"] = f"长线主题/行业匹配：{','.join(item['matched_themes'][:3]) or item.get('industry') or '待验证'}"
             item["score_breakdown"] = {
                 "formula": methodology["formula"],
                 "input_values": {
                     "long_term_score": item["long_term_score"],
                     "theme_component": round(theme_component, 2),
                     "event_exposure_score": item["event_exposure_score"],
-                    "news_research_announcement_evidence": item["evidence_score"],
+                    "major_catalyst_score": round(item["major_catalyst_score"], 2),
+                    "materiality_score": round(item["materiality_score"], 2),
+                    "news_research_announcement_evidence": item["evidence_quality_score"],
                     "sentiment_component": round(sentiment_component, 2),
                     "social_score": item["social_score"],
                     "funds_score": item.get("funds_score", 0),
@@ -2814,6 +3049,11 @@ class MarketIntelligenceService:
                     "risk_score": item["risk_score"],
                     "price_in_penalty": item["price_in_penalty"],
                     "evidence_count": evidence_count,
+                    "non_social_evidence_count": non_social_evidence_count,
+                    "core_event_count": item["core_event_count"],
+                    "important_event_count": item["important_event_count"],
+                    "minor_event_count": item["minor_event_count"],
+                    "comment_only": comment_only,
                     "matched_themes": item["matched_themes"],
                     "identity_themes": item.get("identity_themes", []),
                     "universe_sources": item["universe_sources"],
@@ -2830,6 +3070,12 @@ class MarketIntelligenceService:
             item.pop("sentiment_docs", None)
             if not item["name"]:
                 item["name"] = item["code"]
+            if comment_only and (pct_chg > 6.5 or item["score"] < 45):
+                continue
+            if pct_chg >= 9.2 and core_change_count == 0:
+                continue
+            if item["score"] < 28 and core_change_count == 0 and item["long_term_score"] < 62 and item["evidence_quality_score"] < 45:
+                continue
             result.append(item)
 
         result.sort(key=lambda item: (
@@ -2900,10 +3146,21 @@ class MarketIntelligenceService:
         mapped_events: List[Dict[str, Any]],
     ) -> float:
         theme_severity = max([_finite_float(event_theme_scores.get(theme, 0.0)) for theme in matched_themes] or [0.0])
-        direct_severity = max([_finite_float(event.get("severity")) for event in mapped_events] or [0.0])
+        direct_scores = []
+        for event in mapped_events:
+            materiality = self._event_materiality(event)
+            multiplier = {
+                "core": 1.08,
+                "important": 0.88,
+                "supporting": 0.45,
+                "minor": 0.18,
+            }.get(materiality["level"], 0.35)
+            direct_scores.append(max(materiality["score"], _finite_float(event.get("severity")) * multiplier))
+        direct_severity = max(direct_scores or [0.0])
         if not theme_severity and not direct_severity:
             return 35.0
-        novelty = _sigmoid_score(len(matched_themes) + len(mapped_events), midpoint=2.0, scale=2.0)
+        core_event_count = sum(1 for event in mapped_events if self._event_materiality(event)["level"] in {"core", "important"})
+        novelty = _sigmoid_score(len(matched_themes) + core_event_count * 1.6, midpoint=2.0, scale=2.0)
         return max(35.0, min(100.0, max(theme_severity, direct_severity) * 0.72 + novelty * 0.28))
 
     def _supply_chain_score(self, matched_themes: List[str], event_theme_scores: Dict[str, float]) -> float:

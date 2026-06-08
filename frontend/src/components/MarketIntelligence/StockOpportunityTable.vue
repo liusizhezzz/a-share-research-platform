@@ -12,7 +12,14 @@
         <el-tag :type="scoreTag(row.score)" effect="plain">{{ formatNumber(row.score) }}</el-tag>
       </template>
     </el-table-column>
-    <el-table-column prop="prediction_horizon" label="预测期" width="112">
+    <el-table-column prop="materiality_level" label="事件级别" width="110">
+      <template #default="{ row }">
+        <el-tag :type="materialityTag(row.materiality_level)" effect="plain">
+          {{ row.materiality_level || '长线主题' }}
+        </el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column prop="prediction_horizon" label="预测期" width="150">
       <template #default="{ row }">{{ row.prediction_horizon || '1-3交易日' }}</template>
     </el-table-column>
     <el-table-column prop="signal_strength" label="确认" width="82" sortable>
@@ -43,7 +50,11 @@
           公告 {{ row.announcement_count || 0 }} / 研报 {{ row.research_count || 0 }} /
           量化 {{ row.quant_count || 0 }}
         </div>
-        <div class="headline">{{ row.candidate_reason || row.headlines?.[0] || '暂无代表线索' }}</div>
+        <div class="event-line">
+          核心 {{ row.core_event_count || 0 }} / 重要 {{ row.important_event_count || 0 }} /
+          非核心 {{ row.minor_event_count || 0 }}
+        </div>
+        <div class="headline">{{ primaryCatalyst(row) }}</div>
         <div class="source-line">{{ row.universe_source || '全市场扫描' }}</div>
       </template>
     </el-table-column>
@@ -83,6 +94,18 @@ const scoreTag = (value?: number) => {
   if (score >= 55) return 'warning'
   return 'info'
 }
+
+const materialityTag = (value?: string) => {
+  if (value === '核心催化') return 'danger'
+  if (value === '重要变化') return 'warning'
+  if (value === '评论辅助') return 'info'
+  return 'success'
+}
+
+const primaryCatalyst = (row: StockOpportunity) => {
+  if (row.core_catalysts?.length) return row.core_catalysts[0]
+  return row.candidate_reason || row.headlines?.[0] || '暂无代表线索'
+}
 </script>
 
 <style scoped lang="scss">
@@ -110,6 +133,13 @@ const scoreTag = (value?: number) => {
 
 .evidence-line {
   color: #c3cee2;
+  line-height: 1.45;
+}
+
+.event-line {
+  margin-top: 3px;
+  color: #9fc7ff;
+  font-size: 12px;
   line-height: 1.45;
 }
 

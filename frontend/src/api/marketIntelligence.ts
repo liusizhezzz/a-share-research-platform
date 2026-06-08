@@ -183,9 +183,17 @@ export interface StockOpportunity {
   long_term_score?: number
   event_exposure_score?: number
   evidence_score?: number
+  evidence_quality_score?: number
   social_score?: number
   supply_chain_score?: number
   risk_score?: number
+  core_event_count?: number
+  important_event_count?: number
+  minor_event_count?: number
+  major_catalyst_score?: number
+  materiality_score?: number
+  materiality_level?: string
+  core_catalysts?: string[]
   pct_chg?: number
   amount?: number
   price?: number
