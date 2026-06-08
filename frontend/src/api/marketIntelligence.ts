@@ -121,6 +121,7 @@ export interface EventCluster {
   linked_event_score?: number
   source_count?: number
   sources?: string[]
+  document_types?: string[]
   themes?: string[]
   symbols?: string[]
   last_published_at?: string

@@ -512,7 +512,7 @@ const tokenizeForEventMatch = (value?: string | null) =>
     String(value || '')
       .match(/[\u4e00-\u9fa5A-Za-z0-9]{2,}/g)
       ?.map((token) => token.toLowerCase())
-      .filter((token) => !['公司', '今日', '市场', '新闻', '评论', '风险', '影响'].includes(token)) || []
+      .filter((token) => !['公司', '今日', '市场', '新闻', '评论', '风险', '影响', 'public', 'html', 'link', 'metadata', 'http', 'https', 'www'].includes(token)) || []
   )
 
 const scoreClusterEvent = (cluster: EventCluster, event: GlobalEvent) => {
@@ -537,6 +537,11 @@ const scoreClusterEvent = (cluster: EventCluster, event: GlobalEvent) => {
   const hasTitleMatch = Boolean(cluster.title && event.title && (cluster.title.includes(event.title) || event.title.includes(cluster.title)))
   const hasSymbolMatch = (cluster.symbols || []).some((symbol) => (event.mapped_stocks || []).includes(symbol))
   const tokenOverlapCount = Array.from(clusterTokens).filter((token) => eventTokens.has(token)).length
+  const documentTypes = cluster.document_types || []
+  const isCommentOnly = Boolean(documentTypes.length) && documentTypes.every((type) => type === 'social_comment')
+  if (isCommentOnly && !hasTitleMatch && tokenOverlapCount < 2) {
+    return 0
+  }
   if (!hasTitleMatch && !hasSymbolMatch && tokenOverlapCount < 2) {
     return 0
   }

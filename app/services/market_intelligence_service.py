@@ -944,6 +944,7 @@ class MarketIntelligenceService:
         stop_words = {
             "公司", "今日", "目前", "已经", "开始", "影响", "全球", "市场", "投资", "报告",
             "新闻", "评论", "表示", "认为", "可以", "还是", "没有", "风险", "数据",
+            "public", "html", "link", "metadata", "http", "https", "www",
         }
         tokens = set()
         for token in re.findall(r"[\u4e00-\u9fa5A-Za-z0-9]{2,}", value or ""):
@@ -957,6 +958,7 @@ class MarketIntelligenceService:
         event_themes = set(event.get("mapped_themes") or [])
         cluster_symbols = set(cluster.get("symbols") or [])
         event_symbols = set(event.get("mapped_stocks") or [])
+        cluster_doc_types = set(cluster.get("document_types") or [])
         cluster_text = f"{cluster.get('title', '')} {cluster.get('summary', '')}"
         event_text = (
             f"{event.get('title', '')} {event.get('summary', '')} "
@@ -981,6 +983,9 @@ class MarketIntelligenceService:
         has_title_match = bool(cluster_title and event_title and (cluster_title in event_title or event_title in cluster_title))
         has_symbol_match = bool(symbol_overlap)
         has_token_match = len(token_overlap) >= 2
+        is_comment_only = bool(cluster_doc_types) and cluster_doc_types <= {"social_comment"}
+        if is_comment_only and not has_title_match and not has_token_match:
+            return 0.0
         if not (has_title_match or has_symbol_match or has_token_match):
             return 0.0
         if has_title_match:
@@ -1027,6 +1032,7 @@ class MarketIntelligenceService:
                 "document_keys": [],
                 "documents": [],
                 "sources": set(),
+                "document_types": set(),
                 "themes": set(),
                 "symbols": set(),
                 "first_published_at": _parse_dt(doc.get("published_at")),
@@ -1042,6 +1048,7 @@ class MarketIntelligenceService:
             if len(cluster["documents"]) < 8:
                 cluster["documents"].append(_jsonable(doc))
             cluster["sources"].add(str(doc.get("source") or doc.get("data_source") or "未知"))
+            cluster["document_types"].add(str(doc.get("document_type") or "unknown"))
             cluster["themes"].update(doc.get("themes") or [])
             cluster["symbols"].update(doc.get("symbols") or [])
             cluster["first_published_at"] = min(cluster["first_published_at"], published)
@@ -1057,7 +1064,7 @@ class MarketIntelligenceService:
                 "themes": event.get("mapped_themes") or [],
                 "symbols": event.get("mapped_stocks") or [],
             }
-            key = self._cluster_key_for_doc(pseudo_doc)
+            key = f"event:{event.get('event_id') or hashlib.sha1(text.encode('utf-8')).hexdigest()[:18]}"
             cluster = grouped.setdefault(key, {
                 "cluster_id": key,
                 "title": event.get("title") or event.get("location_name") or "全球事件",
@@ -1065,6 +1072,7 @@ class MarketIntelligenceService:
                 "document_keys": [],
                 "documents": [],
                 "sources": set(),
+                "document_types": set(),
                 "themes": set(),
                 "symbols": set(),
                 "first_published_at": _parse_dt(event.get("published_at")),
@@ -1115,6 +1123,7 @@ class MarketIntelligenceService:
                 "linked_event_score": link_score,
                 "source_count": len(cluster["sources"]),
                 "sources": sorted(cluster["sources"]),
+                "document_types": sorted(cluster["document_types"]),
                 "themes": sorted(cluster["themes"]),
                 "symbols": sorted(cluster["symbols"]),
                 "first_published_at": cluster["first_published_at"],
