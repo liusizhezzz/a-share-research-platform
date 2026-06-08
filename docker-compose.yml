@@ -44,6 +44,7 @@ services:
       - REDIS_HOST=tradingagents-redis
       - PYTHONUNBUFFERED=1
       - TZ=Asia/Shanghai
+      - ANALYSIS_NEWS_MAX_AGE_DAYS=${ANALYSIS_NEWS_MAX_AGE_DAYS:-7}
     ports:
       - "127.0.0.1:8000:8000"
     networks:

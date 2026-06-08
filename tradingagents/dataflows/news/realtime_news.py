@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 # 导入日志模块
 from tradingagents.config.runtime_settings import get_timezone_name
+from tradingagents.dataflows.news.news_freshness import get_news_max_age_days, parse_news_datetime
 
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
@@ -330,7 +331,7 @@ class RealtimeNewsAggregator:
                     em_start_time = datetime.now(ZoneInfo(get_timezone_name()))
                     news_df = provider.get_stock_news_sync(symbol=clean_ticker)
 
-                    if not news_df.empty:
+                    if news_df is not None and not news_df.empty:
                         logger.info(f"[中文财经新闻] 东方财富返回 {len(news_df)} 条新闻数据，开始处理")
                         processed_count = 0
                         skipped_count = 0
@@ -340,18 +341,10 @@ class RealtimeNewsAggregator:
                         for _, row in news_df.iterrows():
                             try:
                                 # 解析时间
-                                time_str = row.get('时间', '')
-                                if time_str:
-                                    # 尝试解析时间格式，可能是'2023-01-01 12:34:56'格式
-                                    try:
-                                        publish_time = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=ZoneInfo(get_timezone_name()))
-                                    except:
-                                        # 尝试其他可能的格式
-                                        try:
-                                            publish_time = datetime.strptime(time_str, '%Y-%m-%d').replace(tzinfo=ZoneInfo(get_timezone_name()))
-                                        except:
-                                            logger.warning(f"[中文财经新闻] 无法解析时间格式: {time_str}，使用当前时间")
-                                            publish_time = datetime.now(ZoneInfo(get_timezone_name()))
+                                time_str = row.get('发布时间', '') or row.get('时间', '')
+                                parsed_time = parse_news_datetime(time_str)
+                                if parsed_time:
+                                    publish_time = parsed_time.replace(tzinfo=ZoneInfo(get_timezone_name()))
                                 else:
                                     logger.warning(f"[中文财经新闻] 新闻时间为空，使用当前时间")
                                     publish_time = datetime.now(ZoneInfo(get_timezone_name()))
@@ -362,8 +355,8 @@ class RealtimeNewsAggregator:
                                     continue
 
                                 # 评估紧急程度
-                                title = row.get('标题', '')
-                                content = row.get('内容', '')
+                                title = row.get('新闻标题', '') or row.get('标题', '')
+                                content = row.get('新闻内容', '') or row.get('内容', '')
                                 urgency = self._assess_news_urgency(title, content)
 
                                 news_items.append(NewsItem(
@@ -371,7 +364,7 @@ class RealtimeNewsAggregator:
                                     content=content,
                                     source='东方财富',
                                     publish_time=publish_time,
-                                    url=row.get('链接', ''),
+                                    url=row.get('新闻链接', '') or row.get('链接', ''),
                                     urgency=urgency,
                                     relevance_score=self._calculate_relevance(title, ticker)
                                 ))
@@ -771,14 +764,16 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
             else:
                 logger.info(f"[新闻分析] 东方财富API返回数据: {news_df}")
 
-            if not news_df.empty:
+            if news_df is not None and not news_df.empty:
                 # 构建简单的新闻报告
                 news_count = len(news_df)
+                max_age_days = get_news_max_age_days()
                 logger.info(f"[新闻分析] 成功获取 {news_count} 条东方财富新闻，耗时 {time_taken:.2f} 秒")
 
                 report = f"# {ticker} 东方财富新闻报告\n\n"
                 report += f"📅 生成时间: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}\n"
                 report += f"📊 新闻总数: {news_count}条\n"
+                report += f"🕒 数据窗口: 最近{max_age_days}天，已过滤更早或无发布时间新闻\n"
                 report += f"🕒 获取耗时: {time_taken:.2f}秒\n\n"
 
                 # 记录一些新闻标题示例
@@ -874,14 +869,16 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
             end_time = datetime.now(ZoneInfo(get_timezone_name()))
             time_taken = (end_time - start_time).total_seconds()
 
-            if not news_df.empty:
+            if news_df is not None and not news_df.empty:
                 # 构建简单的新闻报告
                 news_count = len(news_df)
+                max_age_days = get_news_max_age_days()
                 logger.info(f"[新闻分析] 成功获取 {news_count} 条东方财富港股新闻，耗时 {time_taken:.2f} 秒")
 
                 report = f"# {ticker} 东方财富新闻报告\n\n"
                 report += f"📅 生成时间: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}\n"
                 report += f"📊 新闻总数: {news_count}条\n"
+                report += f"🕒 数据窗口: 最近{max_age_days}天，已过滤更早或无发布时间新闻\n"
                 report += f"🕒 获取耗时: {time_taken:.2f}秒\n\n"
 
                 # 记录一些新闻标题示例

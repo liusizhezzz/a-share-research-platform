@@ -1203,11 +1203,25 @@ class Toolkit:
 
                     # 通过 AKShare Provider 获取新闻
                     from tradingagents.dataflows.providers.china.akshare import AKShareProvider
+                    from tradingagents.dataflows.news.news_freshness import (
+                        filter_recent_dataframe,
+                        get_news_max_age_days,
+                    )
 
                     provider = AKShareProvider()
 
                     # 获取东方财富新闻
                     news_df = provider.get_stock_news_sync(symbol=clean_ticker)
+
+                    if news_df is not None and not news_df.empty:
+                        max_age_days = get_news_max_age_days()
+                        news_df, filtered_count = filter_recent_dataframe(
+                            news_df,
+                            max_age_days=max_age_days,
+                            limit=10,
+                        )
+                    else:
+                        filtered_count = 0
 
                     if news_df is not None and not news_df.empty:
                         # 格式化东方财富新闻
@@ -1224,8 +1238,17 @@ class Toolkit:
                         # 添加到结果中
                         if em_news_items:
                             em_news_text = "\n".join(em_news_items)
-                            result_data.append(f"## 东方财富新闻\n{em_news_text}")
-                            logger.info(f"🇨🇳🇭🇰 [统一新闻工具] 成功获取{len(em_news_items)}条东方财富新闻")
+                            result_data.append(
+                                f"## 东方财富新闻\n"
+                                f"数据窗口: 最近{max_age_days}天；已过滤过期/无发布时间{filtered_count}条\n"
+                                f"{em_news_text}"
+                            )
+                            logger.info(
+                                f"🇨🇳🇭🇰 [统一新闻工具] 成功获取{len(em_news_items)}条最近东方财富新闻，"
+                                f"过滤{filtered_count}条"
+                            )
+                    else:
+                        logger.warning(f"🇨🇳🇭🇰 [统一新闻工具] 东方财富未返回最近窗口内新闻")
                 except Exception as em_e:
                     logger.error(f"❌ [统一新闻工具] 东方财富新闻获取失败: {em_e}")
                     result_data.append(f"## 东方财富新闻\n获取失败: {em_e}")

@@ -4,6 +4,7 @@ AKShare统一数据提供器
 """
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional, Union
 import pandas as pd
@@ -178,10 +179,10 @@ class AKShareProvider(BaseStockDataProvider):
             新闻 DataFrame 或 None
         """
         try:
-            from curl_cffi import requests as curl_requests
             import json
             import time
             import os
+            import html
 
             # 标准化股票代码
             symbol_6 = symbol.zfill(6)
@@ -213,13 +214,25 @@ class AKShareProvider(BaseStockDataProvider):
                 "_": str(int(time.time() * 1000))
             }
 
-            # 使用 curl_cffi 发送请求
-            response = curl_requests.get(
-                url,
-                params=params,
-                timeout=10,
-                impersonate="chrome120"
-            )
+            try:
+                from curl_cffi import requests as curl_requests
+                response = curl_requests.get(
+                    url,
+                    params=params,
+                    timeout=10,
+                    impersonate="chrome120"
+                )
+            except ImportError:
+                import requests
+                response = requests.get(
+                    url,
+                    params=params,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 TradingAgents-CN/1.0",
+                        "Referer": "https://so.eastmoney.com/",
+                    },
+                    timeout=10,
+                )
 
             if response.status_code != 200:
                 self.logger.error(f"❌ {symbol} 东方财富网 API 返回错误: {response.status_code}")
@@ -246,9 +259,11 @@ class AKShareProvider(BaseStockDataProvider):
             # 转换为 DataFrame（与 AKShare 格式兼容）
             news_data = []
             for article in articles:
+                title = html.unescape(re.sub(r"<[^>]+>", "", str(article.get("title", "")))).strip()
+                content = html.unescape(re.sub(r"<[^>]+>", "", str(article.get("content", "")))).strip()
                 news_data.append({
-                    "新闻标题": article.get("title", ""),
-                    "新闻内容": article.get("content", ""),
+                    "新闻标题": title,
+                    "新闻内容": content,
                     "发布时间": article.get("date", ""),
                     "新闻链接": article.get("url", ""),
                     "关键词": article.get("keywords", ""),
@@ -1159,11 +1174,51 @@ class AKShareProvider(BaseStockDataProvider):
                             raise
 
                 if news_df is not None and not news_df.empty:
-                    self.logger.info(f"✅ {symbol} AKShare新闻获取成功: {len(news_df)} 条")
-                    return news_df.head(limit) if limit else news_df
+                    from tradingagents.dataflows.news.news_freshness import (
+                        filter_recent_dataframe,
+                        get_news_max_age_days,
+                    )
+
+                    max_age_days = get_news_max_age_days()
+                    filtered_df, filtered_count = filter_recent_dataframe(
+                        news_df,
+                        max_age_days=max_age_days,
+                        limit=limit,
+                    )
+                    if filtered_df is not None and not filtered_df.empty:
+                        self.logger.info(
+                            f"✅ {symbol} AKShare新闻获取成功: {len(filtered_df)} 条"
+                            f"（最近{max_age_days}天，过滤过期/未知{filtered_count}条）"
+                        )
+                        return filtered_df
+
+                    self.logger.warning(
+                        f"⚠️ {symbol} AKShare仅返回过期或无发布时间新闻，尝试东方财富直连API"
+                    )
+                    direct_df = self._get_stock_news_direct(symbol_6, limit=limit or 10)
+                    direct_df, direct_filtered_count = filter_recent_dataframe(
+                        direct_df,
+                        max_age_days=max_age_days,
+                        limit=limit,
+                    )
+                    if direct_df is not None and not direct_df.empty:
+                        self.logger.info(
+                            f"✅ {symbol} 东方财富直连新闻获取成功: {len(direct_df)} 条"
+                            f"（过滤过期/未知{direct_filtered_count}条）"
+                        )
+                        return direct_df
+                    return None
                 else:
                     self.logger.warning(f"⚠️ {symbol} 未获取到AKShare新闻数据")
-                    return None
+                    direct_df = self._get_stock_news_direct(symbol_6, limit=limit or 10)
+                    if direct_df is not None and not direct_df.empty:
+                        from tradingagents.dataflows.news.news_freshness import filter_recent_dataframe, get_news_max_age_days
+                        direct_df, _ = filter_recent_dataframe(
+                            direct_df,
+                            max_age_days=get_news_max_age_days(),
+                            limit=limit,
+                        )
+                    return direct_df
             else:
                 # 获取市场新闻
                 self.logger.debug("📰 获取AKShare市场新闻")
@@ -1278,6 +1333,23 @@ class AKShareProvider(BaseStockDataProvider):
                                 raise
 
                 if news_df is not None and not news_df.empty:
+                    from tradingagents.dataflows.news.news_freshness import (
+                        filter_recent_dataframe,
+                        get_news_max_age_days,
+                    )
+
+                    max_age_days = get_news_max_age_days()
+                    news_df, filtered_count = filter_recent_dataframe(
+                        news_df,
+                        max_age_days=max_age_days,
+                        limit=limit,
+                    )
+                    if news_df is None or news_df.empty:
+                        self.logger.warning(
+                            f"⚠️ {symbol} 新闻均不在最近{max_age_days}天窗口内，过滤过期/未知{filtered_count}条"
+                        )
+                        return []
+
                     news_list = []
 
                     for _, row in news_df.head(limit).iterrows():

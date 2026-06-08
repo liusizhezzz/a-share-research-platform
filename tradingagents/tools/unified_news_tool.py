@@ -6,8 +6,16 @@
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+import html
 import re
+
+from tradingagents.dataflows.news.news_freshness import (
+    filter_recent_items,
+    format_freshness_line,
+    get_news_max_age_days,
+    parse_news_datetime,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +98,26 @@ class UnifiedNewsAnalyzer:
         else:
             return "A股"
 
+    def _clean_news_text(self, value: str) -> str:
+        """Remove search-highlight markup from upstream news text."""
+        text = html.unescape(str(value or ""))
+        return re.sub(r"<[^>]+>", "", text).strip()
+
+    def _dedupe_news_items(self, news_items):
+        """Drop duplicate news rows by URL or normalized title+publish time."""
+        seen = set()
+        deduped = []
+        for news in news_items:
+            title = self._clean_news_text(news.get('title') or news.get('新闻标题') or '')
+            publish_time = parse_news_datetime(news.get('publish_time') or news.get('发布时间') or news.get('时间'))
+            url = str(news.get('url') or news.get('新闻链接') or '').strip()
+            key = url or f"{title}|{publish_time.strftime('%Y-%m-%d %H:%M') if publish_time else ''}"
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(news)
+        return deduped
+
     def _get_news_from_database(self, stock_code: str, max_news: int = 10) -> str:
         """
         从数据库获取新闻
@@ -120,41 +148,55 @@ class UnifiedNewsAnalyzer:
             clean_code = stock_code.replace('.SH', '').replace('.SZ', '').replace('.SS', '')\
                                    .replace('.XSHE', '').replace('.XSHG', '').replace('.HK', '')
 
-            # 查询最近30天的新闻（扩大时间范围）
-            thirty_days_ago = datetime.now() - timedelta(days=30)
+            max_age_days = get_news_max_age_days()
+            cutoff_time = datetime.now() - timedelta(days=max_age_days)
 
-            # 尝试多种查询方式（使用 symbol 字段）
+            # 尝试多种查询方式。即便数据库里有历史缓存，也必须在客户端再做一次
+            # 发布时间解析和过滤，避免旧新闻被当作“最新新闻”喂给分析模型。
             query_list = [
-                {'symbol': clean_code, 'publish_time': {'$gte': thirty_days_ago}},
-                {'symbol': stock_code, 'publish_time': {'$gte': thirty_days_ago}},
-                {'symbols': clean_code, 'publish_time': {'$gte': thirty_days_ago}},
-                # 如果最近30天没有新闻，则查询所有新闻（不限时间）
+                {'symbol': clean_code, 'publish_time': {'$gte': cutoff_time}},
+                {'symbol': stock_code, 'publish_time': {'$gte': cutoff_time}},
+                {'symbols': clean_code, 'publish_time': {'$gte': cutoff_time}},
                 {'symbol': clean_code},
+                {'symbol': stock_code},
                 {'symbols': clean_code},
+                {'symbols': stock_code},
             ]
 
             news_items = []
+            stale_or_unknown_count = 0
             for query in query_list:
-                cursor = collection.find(query).sort('publish_time', -1).limit(max_news)
-                news_items = list(cursor)
+                cursor = collection.find(query).sort('publish_time', -1).limit(max(max_news * 5, 50))
+                candidates = list(cursor)
+                news_items, stale_or_unknown_count = filter_recent_items(
+                    candidates,
+                    max_age_days=max_age_days,
+                    limit=None,
+                )
+                news_items = self._dedupe_news_items(news_items)[:max_news]
                 if news_items:
-                    logger.info(f"[统一新闻工具] 📊 使用查询 {query} 找到 {len(news_items)} 条新闻")
+                    logger.info(
+                        f"[统一新闻工具] 📊 使用查询 {query} 找到 {len(news_items)} 条最近新闻，"
+                        f"过滤过期/未知 {stale_or_unknown_count} 条"
+                    )
                     break
 
             if not news_items:
-                logger.info(f"[统一新闻工具] 数据库中没有找到 {stock_code} 的新闻")
+                logger.info(f"[统一新闻工具] 数据库中没有找到 {stock_code} 最近{max_age_days}天的可用新闻")
                 return ""
 
             # 格式化新闻
-            report = f"# {stock_code} 最新新闻 (数据库缓存)\n\n"
+            report = f"# {stock_code} 最新新闻 (数据库缓存，最近{max_age_days}天)\n\n"
             report += f"📅 查询时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             report += f"📊 新闻数量: {len(news_items)} 条\n\n"
+            report += f"🕒 {format_freshness_line(news_items, max_age_days=max_age_days)}\n"
+            report += f"🧹 已过滤过期/无发布时间缓存: {stale_or_unknown_count} 条\n\n"
 
             for i, news in enumerate(news_items, 1):
-                title = news.get('title', '无标题')
-                content = news.get('content', '') or news.get('summary', '')
+                title = self._clean_news_text(news.get('title', '无标题')) or '无标题'
+                content = self._clean_news_text(news.get('content', '') or news.get('summary', ''))
                 source = news.get('source', '未知来源')
-                publish_time = news.get('publish_time', datetime.now())
+                publish_time = parse_news_datetime(news.get('publish_time')) or datetime.now()
                 sentiment = news.get('sentiment', 'neutral')
 
                 # 情绪图标
@@ -244,7 +286,23 @@ class UnifiedNewsAnalyzer:
                         logger.warning(f"[统一新闻工具] ⚠️ 未获取到新闻数据")
                         return False
 
-                    logger.info(f"[统一新闻工具] 📥 获取到 {len(news_data)} 条新闻")
+                    max_age_days = get_news_max_age_days()
+                    news_data, filtered_count = filter_recent_items(
+                        news_data,
+                        max_age_days=max_age_days,
+                        limit=None,
+                    )
+                    news_data = self._dedupe_news_items(news_data)[:max_news]
+                    if not news_data:
+                        logger.warning(
+                            f"[统一新闻工具] ⚠️ 同步源仅返回过期或无发布时间新闻，已过滤 {filtered_count} 条"
+                        )
+                        return False
+
+                    logger.info(
+                        f"[统一新闻工具] 📥 获取到 {len(news_data)} 条最近新闻"
+                        f"（最近{max_age_days}天，过滤过期/未知{filtered_count}条）"
+                    )
 
                     # 🔥 使用同步方法保存到数据库（不依赖事件循环）
                     from app.services.news_data_service import NewsDataService
@@ -286,7 +344,14 @@ class UnifiedNewsAnalyzer:
         # 获取当前日期
         curr_date = datetime.now().strftime("%Y-%m-%d")
 
-        # 优先级0: 从数据库获取新闻（最高优先级）
+        # 优先级0: 先主动刷新一次东方财富/AKShare，再读取最近窗口内缓存。
+        try:
+            logger.info(f"[统一新闻工具] 📡 主动同步 {stock_code} 的最新新闻...")
+            self._sync_news_from_akshare(stock_code, max_news)
+        except Exception as sync_error:
+            logger.warning(f"[统一新闻工具] ⚠️ 主动同步最新新闻失败，将尝试现有最近缓存: {sync_error}")
+
+        # 优先级1: 从数据库获取最近窗口新闻
         try:
             logger.info(f"[统一新闻工具] 🔍 优先从数据库获取 {stock_code} 的新闻...")
             db_news = self._get_news_from_database(stock_code, max_news)
@@ -294,7 +359,7 @@ class UnifiedNewsAnalyzer:
                 logger.info(f"[统一新闻工具] ✅ 数据库新闻获取成功: {len(db_news)} 字符")
                 return self._format_news_result(db_news, "数据库缓存", model_info)
             else:
-                logger.info(f"[统一新闻工具] ⚠️ 数据库中没有 {stock_code} 的新闻，尝试同步...")
+                logger.info(f"[统一新闻工具] ⚠️ 数据库中没有 {stock_code} 最近窗口新闻，尝试实时工具...")
 
                 # 🔥 数据库没有数据时，调用同步服务同步新闻
                 try:
@@ -314,7 +379,7 @@ class UnifiedNewsAnalyzer:
                 except Exception as sync_error:
                     logger.warning(f"[统一新闻工具] ⚠️ 同步服务调用失败: {sync_error}")
 
-                logger.info(f"[统一新闻工具] ⚠️ 同步后仍无数据，尝试其他数据源...")
+                logger.info(f"[统一新闻工具] ⚠️ 同步后仍无最近新闻，尝试其他数据源...")
         except Exception as e:
             logger.warning(f"[统一新闻工具] 数据库新闻获取失败: {e}")
 
