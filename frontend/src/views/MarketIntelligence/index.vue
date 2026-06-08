@@ -99,11 +99,15 @@
             v-for="cluster in dashboard.event_clusters.slice(0, 8)"
             :key="cluster.cluster_id"
             class="cluster-card"
+            :class="{ active: cluster.cluster_id === selectedClusterId }"
             @click="filterCluster(cluster)"
           >
             <span class="cluster-title">{{ cluster.title }}</span>
             <span class="cluster-meta">
               {{ cluster.document_count || 0 }} 条 · {{ (cluster.sources || []).slice(0, 3).join(' / ') || '多源' }}
+            </span>
+            <span v-if="cluster.linked_event_title" class="cluster-link">
+              映射事件：{{ cluster.linked_event_location || '全球' }} · {{ cluster.linked_event_title }}
             </span>
             <span class="cluster-tags">
               <el-tag v-for="theme in (cluster.themes || []).slice(0, 3)" :key="theme" size="small" effect="plain">
@@ -187,7 +191,7 @@
             class="event-feed-panel"
             :items="dashboard.event_feed"
             :selected-event-id="selectedEventId"
-            @select="selectedEventId = $event"
+            @select="selectEventById($event)"
           />
         </section>
       </div>
@@ -314,6 +318,7 @@ const hours = ref(36)
 const reportType = ref('pre_market')
 const dashboard = ref<MarketIntelligenceDashboard | null>(null)
 const selectedEventId = ref<string>()
+const selectedClusterId = ref<string>()
 const selectedTheme = ref<ThemeHeatmapNode | null>(null)
 const selectedStock = ref<StockOpportunity | null>(null)
 const selectedLayerIds = ref<string[]>([])
@@ -321,7 +326,7 @@ const drawerVisible = ref(false)
 const methodologyVisible = ref(false)
 const methodology = ref<Record<string, any> | null>(null)
 const eventAnalysis = ref<EventImpactAnalysis | null>(null)
-const eventAnalyzing = ref(false)
+const analyzingEventId = ref<string>()
 let refreshTimer: number | undefined
 
 const staleSources = computed(() =>
@@ -336,8 +341,12 @@ const selectedEvent = computed(() => {
 const selectedChain = computed(() => {
   const chains = dashboard.value?.event_impact_chains || []
   const eventId = selectedEvent.value?.event_id
-  return chains.find((chain) => chain.event_id === eventId) || chains[0] || null
+  const exact = chains.find((chain) => chain.event_id === eventId)
+  if (exact) return exact
+  return selectedEvent.value ? buildLocalImpactChain(selectedEvent.value) : null
 })
+
+const eventAnalyzing = computed(() => Boolean(analyzingEventId.value && analyzingEventId.value === selectedEventId.value))
 
 const marketTemperature = computed(() => {
   const themes = dashboard.value?.theme_heatmap_nodes || []
@@ -417,9 +426,7 @@ const ensureLayerSelection = () => {
 }
 
 const selectEvent = (event: GlobalEvent) => {
-  selectedEventId.value = event.event_id
-  drawerVisible.value = true
-  void analyzeEvent(event.event_id, false)
+  selectEventById(event.event_id, { openDrawer: true, analyze: true })
 }
 
 const handleStockSelect = (stock: StockOpportunity) => {
@@ -428,26 +435,32 @@ const handleStockSelect = (stock: StockOpportunity) => {
 }
 
 const filterCluster = (cluster: EventCluster) => {
-  const themes = new Set(cluster.themes || [])
-  const event = (dashboard.value?.global_events || []).find((item) =>
-    (item.mapped_themes || []).some((theme) => themes.has(theme))
-  )
-  if (event) selectEvent(event)
-  else ElMessage.info('该事件簇暂无可定位地图事件，已保留在事件簇列表中')
+  selectedClusterId.value = cluster.cluster_id
+  const event = resolveClusterEvent(cluster)
+  if (event) {
+    selectEventById(event.event_id, { openDrawer: true, analyze: true })
+    return
+  }
+  eventAnalysis.value = null
+  ElMessage.info('该事件簇暂无可定位地图事件，已保留在事件簇列表中')
 }
 
 const analyzeEvent = async (eventId: string, force = false) => {
   if (!eventId) return
-  eventAnalyzing.value = true
+  analyzingEventId.value = eventId
   try {
     const response = await marketIntelligenceApi.analyzeEvent(eventId, force)
-    eventAnalysis.value = response.data
-    drawerVisible.value = true
+    if (selectedEventId.value === eventId) {
+      eventAnalysis.value = response.data
+      drawerVisible.value = true
+    }
   } catch (error) {
     console.error('事件影响分析失败:', error)
     ElMessage.error('事件影响分析失败')
   } finally {
-    eventAnalyzing.value = false
+    if (analyzingEventId.value === eventId) {
+      analyzingEventId.value = undefined
+    }
   }
 }
 
@@ -457,19 +470,118 @@ const analyzeSelectedEvent = async (force = false) => {
   await analyzeEvent(eventId, force)
 }
 
-const fetchSelectedEventAnalysis = async () => {
-  const eventId = selectedEvent.value?.event_id
+const fetchSelectedEventAnalysis = async (eventId = selectedEvent.value?.event_id) => {
   if (!eventId) {
     eventAnalysis.value = null
     return
   }
   try {
     const response = await marketIntelligenceApi.getEventAnalysis(eventId)
-    eventAnalysis.value = response.data?.status === 'not_started' ? null : response.data
+    if (selectedEventId.value === eventId) {
+      eventAnalysis.value = response.data?.status === 'not_started' ? null : response.data
+    }
   } catch {
-    eventAnalysis.value = null
+    if (selectedEventId.value === eventId) {
+      eventAnalysis.value = null
+    }
   }
 }
+
+const selectEventById = (
+  eventId: string,
+  options: { openDrawer?: boolean; analyze?: boolean } = {}
+) => {
+  const event = (dashboard.value?.global_events || []).find((item) => item.event_id === eventId)
+  if (!event) {
+    ElMessage.warning('该事件不在当前时间窗口内，请刷新或扩大时间范围')
+    return
+  }
+  const changed = selectedEventId.value !== eventId
+  selectedEventId.value = eventId
+  if (changed) eventAnalysis.value = null
+  if (options.openDrawer) drawerVisible.value = true
+  if (options.analyze) {
+    void analyzeEvent(eventId, false)
+  } else {
+    void fetchSelectedEventAnalysis(eventId)
+  }
+}
+
+const tokenizeForEventMatch = (value?: string | null) =>
+  new Set(
+    String(value || '')
+      .match(/[\u4e00-\u9fa5A-Za-z0-9]{2,}/g)
+      ?.map((token) => token.toLowerCase())
+      .filter((token) => !['公司', '今日', '市场', '新闻', '评论', '风险', '影响'].includes(token)) || []
+  )
+
+const scoreClusterEvent = (cluster: EventCluster, event: GlobalEvent) => {
+  const clusterThemes = new Set(cluster.themes || [])
+  const eventThemes = new Set(event.mapped_themes || [])
+  const clusterSymbols = new Set(cluster.symbols || [])
+  const eventSymbols = new Set(event.mapped_stocks || [])
+  const clusterText = `${cluster.title || ''} ${cluster.summary || ''}`
+  const eventText = `${event.title || ''} ${event.summary || ''} ${event.location_name || ''} ${event.region || ''} ${event.country || ''}`
+  const clusterTokens = tokenizeForEventMatch(clusterText)
+  const eventTokens = tokenizeForEventMatch(eventText)
+  let score = 0
+  clusterThemes.forEach((theme) => {
+    if (eventThemes.has(theme)) score += 12
+  })
+  clusterSymbols.forEach((symbol) => {
+    if (eventSymbols.has(symbol)) score += 18
+  })
+  clusterTokens.forEach((token) => {
+    if (eventTokens.has(token)) score += 5
+  })
+  if (cluster.title && event.title && (cluster.title.includes(event.title) || event.title.includes(cluster.title))) {
+    score += 30
+  }
+  if (cluster.last_published_at && event.published_at) {
+    const gapHours = Math.abs(new Date(cluster.last_published_at).getTime() - new Date(event.published_at).getTime()) / 3600000
+    score += Math.max(0, 10 - gapHours)
+  }
+  score += Math.min(8, Number(event.severity || 0) / 12)
+  return score
+}
+
+const resolveClusterEvent = (cluster: EventCluster) => {
+  const events = dashboard.value?.global_events || []
+  const linkedIds = [
+    cluster.linked_event_id,
+    ...(cluster.event_ids || [])
+  ].filter(Boolean) as string[]
+  for (const eventId of linkedIds) {
+    const linked = events.find((event) => event.event_id === eventId)
+    if (linked) return linked
+  }
+  let bestEvent: GlobalEvent | null = null
+  let bestScore = 0
+  for (const event of events) {
+    const score = scoreClusterEvent(cluster, event)
+    if (score > bestScore) {
+      bestScore = score
+      bestEvent = event
+    }
+  }
+  return bestScore >= 24 ? bestEvent : null
+}
+
+const buildLocalImpactChain = (event: GlobalEvent) => ({
+  event_id: event.event_id,
+  event_title: event.title,
+  severity: event.severity,
+  location_name: event.location_name || event.region || event.country,
+  steps: [
+    { label: '事件', value: event.summary || event.title },
+    { label: '资产/变量', value: (event.affected_assets || []).slice(0, 4).join('、') || '等待资产响应确认' },
+    { label: '传导渠道', value: (event.transmission_channels || []).slice(0, 4).join('、') || '等待传导渠道确认' },
+    { label: 'A股主题', value: (event.mapped_themes || []).slice(0, 5).join('、') || '等待主题映射' },
+    { label: '候选股票', value: (event.mapped_stocks || []).slice(0, 6).join('、') || '等待资金/量价确认' }
+  ],
+  mapped_themes: event.mapped_themes || [],
+  mapped_stocks: []
+})
 
 const showMethodology = async () => {
   methodologyVisible.value = true
@@ -700,6 +812,12 @@ onBeforeUnmount(() => {
     border-color: rgba(57, 116, 216, 0.55);
     background: rgba(57, 116, 216, 0.12);
   }
+
+  &.active {
+    border-color: rgba(96, 165, 250, 0.72);
+    background: rgba(37, 99, 235, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.2);
+  }
 }
 
 .cluster-title {
@@ -711,6 +829,15 @@ onBeforeUnmount(() => {
 .cluster-meta {
   color: #8796af;
   font-size: 12px;
+}
+
+.cluster-link {
+  overflow: hidden;
+  color: #9fc7ff;
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cluster-tags {

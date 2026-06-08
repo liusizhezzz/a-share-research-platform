@@ -113,6 +113,12 @@ export interface EventCluster {
   summary?: string
   document_count?: number
   event_count?: number
+  event_ids?: string[]
+  linked_event_id?: string | null
+  linked_event_title?: string | null
+  linked_event_location?: string | null
+  linked_event_severity?: number | null
+  linked_event_score?: number
   source_count?: number
   sources?: string[]
   themes?: string[]

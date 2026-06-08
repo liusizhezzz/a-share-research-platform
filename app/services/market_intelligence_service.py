@@ -743,7 +743,7 @@ class MarketIntelligenceService:
         persisted = await self.db.event_clusters.find(
             {"last_published_at": {"$gte": cutoff}}
         ).sort("last_published_at", -1).limit(limit).to_list(length=limit)
-        if persisted:
+        if persisted and all("linked_event_id" in cluster for cluster in persisted):
             return _jsonable(persisted)
         docs = await self.db.market_documents.find({"published_at": {"$gte": cutoff}}).sort("published_at", -1).limit(400).to_list(length=400)
         events = await self.db.global_events.find({"published_at": {"$gte": cutoff}}).sort("published_at", -1).limit(160).to_list(length=160)
@@ -940,6 +940,74 @@ class MarketIntelligenceService:
             basis = f"title:{normalized}"
         return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:18]
 
+    def _event_cluster_tokens(self, value: str) -> set[str]:
+        stop_words = {
+            "公司", "今日", "目前", "已经", "开始", "影响", "全球", "市场", "投资", "报告",
+            "新闻", "评论", "表示", "认为", "可以", "还是", "没有", "风险", "数据",
+        }
+        tokens = set()
+        for token in re.findall(r"[\u4e00-\u9fa5A-Za-z0-9]{2,}", value or ""):
+            if token in stop_words:
+                continue
+            tokens.add(token.lower())
+        return tokens
+
+    def _score_cluster_event_link(self, cluster: Dict[str, Any], event: Dict[str, Any]) -> float:
+        cluster_themes = set(cluster.get("themes") or [])
+        event_themes = set(event.get("mapped_themes") or [])
+        cluster_symbols = set(cluster.get("symbols") or [])
+        event_symbols = set(event.get("mapped_stocks") or [])
+        cluster_text = f"{cluster.get('title', '')} {cluster.get('summary', '')}"
+        event_text = (
+            f"{event.get('title', '')} {event.get('summary', '')} "
+            f"{event.get('location_name', '')} {event.get('region', '')} {event.get('country', '')}"
+        )
+        cluster_tokens = self._event_cluster_tokens(cluster_text)
+        event_tokens = self._event_cluster_tokens(event_text)
+
+        theme_overlap = cluster_themes & event_themes
+        symbol_overlap = cluster_symbols & event_symbols
+        token_overlap = cluster_tokens & event_tokens
+        score = 0.0
+        if theme_overlap:
+            score += 30.0 * len(theme_overlap) / max(len(cluster_themes | event_themes), 1)
+        if symbol_overlap:
+            score += 34.0 * len(symbol_overlap)
+        if token_overlap:
+            score += min(34.0, 5.0 * len(token_overlap))
+
+        cluster_title = str(cluster.get("title") or "")
+        event_title = str(event.get("title") or "")
+        if cluster_title and event_title and (cluster_title in event_title or event_title in cluster_title):
+            score += 36.0
+
+        cluster_time = _parse_dt(cluster.get("last_published_at"))
+        event_time = _parse_dt(event.get("published_at"))
+        gap_hours = abs((cluster_time - event_time).total_seconds()) / 3600
+        score += max(0.0, 18.0 - gap_hours * 1.2)
+        score += min(12.0, _safe_float(event.get("severity")) / 8.0)
+        return round(score, 3)
+
+    def _linked_event_for_cluster(self, cluster: Dict[str, Any], events: List[Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], float]:
+        if not events:
+            return None, 0.0
+        event_by_id = {event.get("event_id"): event for event in events if event.get("event_id")}
+        direct_ids = [event_id for event_id in cluster.get("event_ids", set()) if event_id in event_by_id]
+        if direct_ids:
+            direct = max(direct_ids, key=lambda event_id: _safe_float(event_by_id[event_id].get("severity")))
+            return event_by_id[direct], 999.0
+
+        best_event: Optional[Dict[str, Any]] = None
+        best_score = 0.0
+        for event in events:
+            score = self._score_cluster_event_link(cluster, event)
+            if score > best_score:
+                best_event = event
+                best_score = score
+        if best_event and best_score >= 24.0:
+            return best_event, best_score
+        return None, best_score
+
     def _build_event_clusters(self, documents: List[Dict[str, Any]], events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         grouped: Dict[str, Dict[str, Any]] = {}
         for doc in documents:
@@ -961,6 +1029,7 @@ class MarketIntelligenceService:
                 "sentiment_total": 0.0,
                 "influence_total": 0.0,
                 "event_count": 0,
+                "event_ids": set(),
             })
             published = _parse_dt(doc.get("published_at"))
             cluster["document_keys"].append(doc.get("doc_key"))
@@ -997,9 +1066,12 @@ class MarketIntelligenceService:
                 "sentiment_total": 0.0,
                 "influence_total": 0.0,
                 "event_count": 0,
+                "event_ids": set(),
             })
             published = _parse_dt(event.get("published_at"))
             cluster["event_count"] += 1
+            if event.get("event_id"):
+                cluster["event_ids"].add(event.get("event_id"))
             cluster["sources"].add(str(event.get("source") or "全球事件"))
             cluster["themes"].update(event.get("mapped_themes") or [])
             cluster["symbols"].update(event.get("mapped_stocks") or [])
@@ -1017,6 +1089,7 @@ class MarketIntelligenceService:
             influence = cluster["influence_total"] / max(total_items, 1)
             heat_score = _sigmoid_score(total_items, midpoint=3, scale=2.2)
             impact_score = round(heat_score * 0.45 + min(100, influence) * 0.35 + (50 + avg_sentiment * 50) * 0.20, 2)
+            linked_event, link_score = self._linked_event_for_cluster(cluster, events)
             result.append({
                 "cluster_id": cluster["cluster_id"],
                 "title": cluster["title"],
@@ -1025,6 +1098,12 @@ class MarketIntelligenceService:
                 "documents": cluster["documents"],
                 "document_count": doc_count,
                 "event_count": cluster["event_count"],
+                "event_ids": sorted(cluster["event_ids"]),
+                "linked_event_id": linked_event.get("event_id") if linked_event else None,
+                "linked_event_title": linked_event.get("title") if linked_event else None,
+                "linked_event_location": (linked_event.get("location_name") or linked_event.get("region")) if linked_event else None,
+                "linked_event_severity": _safe_float(linked_event.get("severity")) if linked_event else None,
+                "linked_event_score": link_score,
                 "source_count": len(cluster["sources"]),
                 "sources": sorted(cluster["sources"]),
                 "themes": sorted(cluster["themes"]),
