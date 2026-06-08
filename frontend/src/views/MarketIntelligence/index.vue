@@ -335,7 +335,8 @@ const staleSources = computed(() =>
 
 const selectedEvent = computed(() => {
   const events = dashboard.value?.global_events || []
-  return events.find((event) => event.event_id === selectedEventId.value) || events[0] || null
+  if (!selectedEventId.value) return null
+  return events.find((event) => event.event_id === selectedEventId.value) || null
 })
 
 const selectedChain = computed(() => {
@@ -441,7 +442,9 @@ const filterCluster = (cluster: EventCluster) => {
     selectEventById(event.event_id, { openDrawer: true, analyze: true })
     return
   }
+  selectedEventId.value = undefined
   eventAnalysis.value = null
+  drawerVisible.value = false
   ElMessage.info('该事件簇暂无可定位地图事件，已保留在事件簇列表中')
 }
 
