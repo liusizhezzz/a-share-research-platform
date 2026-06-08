@@ -5,7 +5,7 @@
         <el-icon><List /></el-icon>
         任务中心
       </h1>
-      <p class="page-description">统一查看并管理分析任务：进行中 / 已完成 / 失败</p>
+      <p class="page-description">统一查看并管理单股分析、市场情报、投资日报等投研任务：进行中 / 已完成 / 失败</p>
     </div>
 
     <el-card class="tabs-card" shadow="never">
@@ -29,6 +29,14 @@
             <el-option label="美股" value="美股" />
             <el-option label="A股" value="A股" />
             <el-option label="港股" value="港股" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="任务类型">
+          <el-select v-model="filters.taskModule" clearable placeholder="全部" style="width: 150px">
+            <el-option label="全部" value="" />
+            <el-option label="单股分析" value="stock_analysis" />
+            <el-option label="市场情报" value="market_intelligence" />
+            <el-option label="投资日报" value="investment_daily" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
@@ -61,7 +69,7 @@
         <el-card shadow="never"><div class="stat"><div class="value">{{ stats.failed }}</div><div class="label">失败</div></div></el-card>
       </el-col>
       <el-col :span="6">
-        <el-card shadow="never"><div class="stat"><div class="value">{{ stats.uniqueStocks }}</div><div class="label">股票数</div></div></el-card>
+        <el-card shadow="never"><div class="stat"><div class="value">{{ stats.uniqueStocks }}</div><div class="label">标的/作业</div></div></el-card>
       </el-col>
     </el-row>
 
@@ -69,7 +77,7 @@
     <el-card class="list-card" shadow="never">
       <div class="list-header">
         <div class="left">
-          <el-input v-model="keyword" placeholder="搜索股票代码/名称" clearable style="width: 220px" />
+          <el-input v-model="keyword" placeholder="搜索代码/名称/报告/任务" clearable style="width: 260px" />
           <el-button @click="refreshList" :loading="loading">
             <el-icon><Refresh /></el-icon>
             刷新
@@ -85,9 +93,24 @@
 
       <el-table :data="filteredList" v-loading="loading" style="width: 100%" @selection-change="onSelectionChange">
         <el-table-column type="selection" width="50" />
-        <el-table-column prop="task_id" label="任务ID" width="220" />
-        <el-table-column prop="stock_code" label="股票代码" width="120" />
-        <el-table-column prop="stock_name" label="股票名称" width="150" />
+        <el-table-column prop="task_id" label="任务ID" width="190">
+          <template #default="{ row }">
+            <span class="task-id">{{ row.task_id }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="任务类型" width="145">
+          <template #default="{ row }">
+            <el-tag :type="getModuleTagType(row)" effect="plain">{{ getTaskModuleText(row) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="作业对象" min-width="260">
+          <template #default="{ row }">
+            <div class="task-target">
+              <span class="target-title">{{ getTaskTitle(row) }}</span>
+              <span class="target-subtitle">{{ getTaskSubtitle(row) }}</span>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
@@ -107,6 +130,7 @@
           <template #default="{ row }">
             <el-button v-if="row.status==='completed'" type="text" size="small" @click="openResult(row)">查看结果</el-button>
             <el-button v-if="row.status==='completed'" type="text" size="small" @click="openReport(row)">报告详情</el-button>
+            <el-button v-if="row.task_kind==='research' && row.route_path" type="text" size="small" @click="openModule(row)">打开模块</el-button>
             <el-button v-if="row.status==='failed'" type="text" size="small" @click="showErrorDetail(row)">查看错误</el-button>
             <el-button v-if="row.status==='failed'" type="text" size="small" @click="retryTask(row)">重试</el-button>
             <el-button v-if="row.status==='processing' || row.status==='running' || row.status==='pending'" type="text" size="small" @click="markAsFailed(row)">标记失败</el-button>
@@ -171,8 +195,8 @@ const total = ref(0)
 const list = ref<any[]>([])
 const selectedRows = ref<any[]>([])
 // 筛选与统计
-const filters = ref<{ dateRange: string[]; market: string; status: string; stock: string }>({
-  dateRange: [], market: '', status: '', stock: ''
+const filters = ref<{ dateRange: string[]; market: string; status: string; stock: string; taskModule: string }>({
+  dateRange: [], market: '', status: '', stock: '', taskModule: ''
 })
 const stats = ref({ total: 0, completed: 0, failed: 0, uniqueStocks: 0 })
 
@@ -266,6 +290,7 @@ const loadList = async () => {
       page: currentPage.value,
       page_size: pageSize.value,
       status: filters.value.status || statusParam.value,
+      task_module: filters.value.taskModule || undefined,
       stock_code: filters.value.stock || undefined
     }
     if (filters.value.market) params.market_type = filters.value.market
@@ -284,6 +309,7 @@ const loadList = async () => {
       try {
         const res2 = await analysisApi.getTaskList({
           status: statusParam.value,
+          task_module: filters.value.taskModule || undefined,
           limit: pageSize.value,
           offset: (currentPage.value - 1) * pageSize.value
         })
@@ -299,7 +325,7 @@ const loadList = async () => {
 
     // 为运行中的任务连接 WebSocket
     tasks.forEach((task: any) => {
-      if (task.status === 'processing' || task.status === 'running' || task.status === 'pending') {
+      if (task.task_kind !== 'research' && (task.status === 'processing' || task.status === 'running' || task.status === 'pending')) {
         connectTaskWebSocket(task.task_id)
       }
     })
@@ -307,7 +333,7 @@ const loadList = async () => {
     // 统计
     const completed = tasks.filter((x:any) => x.status === 'completed').length
     const failed = tasks.filter((x:any) => x.status === 'failed').length
-    const uniqueStocks = new Set(tasks.map((x:any) => x.stock_code || x.stock_symbol)).size
+    const uniqueStocks = new Set(tasks.map((x:any) => x.stock_code || x.stock_symbol || x.display_title || x.title || x.task_id)).size
     stats.value = { total: tasks.length, completed, failed, uniqueStocks }
   } catch (e:any) {
     ElMessage.error(e?.message || '加载失败')
@@ -318,7 +344,7 @@ const loadList = async () => {
 
 // 查询/重置
 const applyFilters = () => { currentPage.value = 1; loadList() }
-const resetFilters = () => { filters.value = { dateRange: [], market: '', status: '', stock: '' }; currentPage.value = 1; loadList() }
+const resetFilters = () => { filters.value = { dateRange: [], market: '', status: '', stock: '', taskModule: '' }; currentPage.value = 1; loadList() }
 
 // 报告弹窗状态
 const reportVisible = ref(false)
@@ -328,7 +354,15 @@ const filteredList = computed(() => {
   let arr = list.value
   if (keyword.value) {
     const k = keyword.value.toLowerCase()
-    arr = arr.filter((x:any) => (x.stock_code||'').toLowerCase().includes(k) || (x.stock_name||'').toLowerCase().includes(k) || (x.task_id||'').toLowerCase().includes(k))
+    arr = arr.filter((x:any) =>
+      (x.stock_code||'').toLowerCase().includes(k)
+      || (x.stock_name||'').toLowerCase().includes(k)
+      || (x.display_title||'').toLowerCase().includes(k)
+      || (x.title||'').toLowerCase().includes(k)
+      || (x.module||'').toLowerCase().includes(k)
+      || (x.task_type||'').toLowerCase().includes(k)
+      || (x.task_id||'').toLowerCase().includes(k)
+    )
   }
   return arr
 })
@@ -364,9 +398,40 @@ const openResult = async (row:any) => {
 }
 
 const openReport = (row:any) => {
+  if (row?.task_kind === 'research') {
+    openResearchReport(row)
+    return
+  }
   const id = row?.task_id || row?.analysis_id || row?.id
   if (!id) return ElMessage.warning('未找到报告ID')
   router.push({ name: 'ReportDetail', params: { id } })
+}
+
+const openResearchReport = async (row:any) => {
+  try {
+    const res = await analysisApi.getTaskResult(row.task_id)
+    const body = (res as any)?.data?.data || {}
+    const reports = body.reports || {}
+    reportSections.value = Object.entries(reports).map(([key, value]) => ({
+      key,
+      title: getReportSectionTitle(key),
+      content: value
+    }))
+    if (reportSections.value.length === 0) {
+      reportSections.value = [
+        { key: 'summary', title: '摘要', content: body.summary || row.message || '暂无内容' }
+      ]
+    }
+    reportVisible.value = true
+  } catch (e:any) {
+    ElMessage.error(e?.message || '获取投研报告失败')
+  }
+}
+
+const openModule = (row:any) => {
+  if (row.route_path) {
+    router.push(row.route_path)
+  }
 }
 
 const retryTask = (row:any) => { ElMessage.info('重试功能待实现') }
@@ -519,14 +584,59 @@ onUnmounted(() => {
 
 const getStatusType = (status:string): 'success' | 'info' | 'warning' | 'danger' => {
   const map: Record<string,'success'|'info'|'warning'|'danger'> = {
-    pending: 'info', processing: 'warning', completed: 'success', failed: 'danger', cancelled: 'info'
+    pending: 'info', processing: 'warning', running: 'warning', completed: 'success', failed: 'danger', cancelled: 'info'
   }
   return map[status] || 'info'
 }
 import { formatDateTime } from '@/utils/datetime'
 
-const getStatusText = (status:string) => ({ pending:'等待中', processing:'处理中', completed:'已完成', failed:'失败', cancelled:'已取消' } as any)[status] || status
+const getStatusText = (status:string) => ({ pending:'等待中', processing:'处理中', running:'处理中', completed:'已完成', failed:'失败', cancelled:'已取消' } as any)[status] || status
 const formatTime = (t:string) => t ? formatDateTime(t) : '-'
+const getTaskModuleText = (row:any) => {
+  if (row.task_kind !== 'research') return '单股分析'
+  const map: Record<string, string> = {
+    market_intelligence: '市场情报',
+    investment_daily: '投资日报'
+  }
+  return map[row.module] || '投研任务'
+}
+const getModuleTagType = (row:any): 'success' | 'info' | 'warning' | 'danger' => {
+  if (row.module === 'market_intelligence') return 'warning'
+  if (row.module === 'investment_daily') return 'success'
+  return 'info'
+}
+const getTaskTitle = (row:any) => {
+  if (row.task_kind === 'research') return row.display_title || row.title || row.stock_name || '投研任务'
+  const code = row.stock_code || row.stock_symbol || row.symbol || '-'
+  const name = row.stock_name || ''
+  return name ? `${name}(${code})` : code
+}
+const getTaskSubtitle = (row:any) => {
+  if (row.task_kind === 'research') {
+    const typeMap: Record<string, string> = {
+      market_intelligence_report: '报告生成',
+      event_impact_analysis: '事件影响分析',
+      investment_daily_report: '日报生成',
+      investment_daily_preanalysis: '候选股预分析'
+    }
+    return [typeMap[row.task_type] || row.task_type, row.source === 'scheduler' ? '自动调度' : '手动触发']
+      .filter(Boolean)
+      .join(' · ')
+  }
+  const params = row.parameters || {}
+  return [params.market_type || 'A股', params.research_depth || '标准分析'].filter(Boolean).join(' · ')
+}
+const getReportSectionTitle = (key:string) => {
+  const map: Record<string, string> = {
+    result: '任务结果',
+    metadata: '元数据',
+    markdown: '报告正文',
+    markdown_report: '报告正文',
+    analysis_markdown: '影响分析',
+    summary: '摘要'
+  }
+  return map[key] || key
+}
 </script>
 
 <style scoped lang="scss">
@@ -537,6 +647,35 @@ const formatTime = (t:string) => t ? formatDateTime(t) : '-'
   .tabs-card { margin-bottom: 16px; }
   .list-header { display:flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap:8px; }
   .pagination-wrapper { display:flex; justify-content:center; margin-top: 16px; }
+  .task-id {
+    display: inline-block;
+    max-width: 165px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+  }
+  .task-target {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .target-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--el-text-color-primary);
+    font-weight: 650;
+  }
+  .target-subtitle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+  }
 }
 </style>
-

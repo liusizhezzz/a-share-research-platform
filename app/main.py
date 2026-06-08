@@ -571,18 +571,48 @@ async def lifespan(app: FastAPI):
 
         async def run_investment_daily():
             """运行开盘前投资日报生成任务"""
+            task_id = None
             try:
                 logger.info("🗞️ 开始生成开盘前投资日报...")
                 from app.services.investment_daily_service import get_investment_daily_service
+                from app.services.research_task_service import get_research_task_service
 
+                task_service = get_research_task_service()
+                task = await task_service.create_task(
+                    user_id="system",
+                    title="开盘前投资日报",
+                    module="investment_daily",
+                    task_type="investment_daily_report",
+                    parameters={"force_refresh": True, "scheduler_job_id": "investment_daily_report"},
+                    route_path="/investment-daily",
+                    source="scheduler",
+                    tags=["投资日报", "定时任务", "报告生成"],
+                )
+                task_id = task["task_id"]
+                await task_service.mark_processing(task_id, "定时任务正在生成投资日报", progress=15)
                 service = await get_investment_daily_service()
                 report = await service.generate_daily_report(force_refresh=True)
+                await task_service.mark_completed(
+                    task_id,
+                    result={
+                        **report,
+                        "report_id": str(report.get("_id") or report.get("report_id") or ""),
+                        "route_path": "/investment-daily",
+                    },
+                    message="开盘前投资日报生成完成",
+                )
                 logger.info(
                     f"✅ 投资日报生成完成: {report.get('report_date')}, "
                     f"方向{len(report.get('directions', []))}个, "
                     f"股票{len(report.get('stocks', []))}只"
                 )
             except Exception as e:
+                if task_id:
+                    try:
+                        from app.services.research_task_service import get_research_task_service
+                        await get_research_task_service().mark_failed(task_id, str(e))
+                    except Exception:
+                        pass
                 logger.error(f"❌ 投资日报生成失败: {e}", exc_info=True)
 
         scheduler.add_job(
@@ -639,29 +669,96 @@ async def lifespan(app: FastAPI):
 
         async def run_market_intelligence_report(report_type: str):
             """生成市场情报报告。"""
+            task_id = None
             try:
                 logger.info(f"🧭 开始生成市场情报报告: {report_type}")
                 from app.services.market_intelligence_service import get_market_intelligence_service
+                from app.services.research_task_service import get_research_task_service
 
+                report_labels = {
+                    "pre_market": "市场情报开盘前报告",
+                    "intraday": "市场情报盘中快报",
+                    "closing": "市场情报收盘复盘",
+                    "event_flash": "市场情报突发事件卡片",
+                    "research_digest": "市场情报研报深度摘要",
+                }
+                task_service = get_research_task_service()
+                task = await task_service.create_task(
+                    user_id="system",
+                    title=report_labels.get(report_type, "市场情报报告"),
+                    module="market_intelligence",
+                    task_type="market_intelligence_report",
+                    parameters={"report_type": report_type, "force_refresh": False, "scheduler_job_id": report_type},
+                    route_path="/market-intelligence",
+                    source="scheduler",
+                    tags=["市场情报", "定时任务", "报告生成"],
+                )
+                task_id = task["task_id"]
+                await task_service.mark_processing(task_id, "定时任务正在生成市场情报报告", progress=15)
                 service = await get_market_intelligence_service()
                 report = await service.generate_report(report_type=report_type, force_refresh=False)
+                await task_service.mark_completed(
+                    task_id,
+                    result={
+                        **report,
+                        "report_id": str(report.get("_id") or report.get("report_id") or ""),
+                        "route_path": "/market-intelligence",
+                    },
+                    message=f"{report_labels.get(report_type, '市场情报报告')}生成完成",
+                )
                 logger.info(
                     f"✅ 市场情报报告生成完成: {report.get('title')} "
                     f"({report.get('status')})"
                 )
             except Exception as e:
+                if task_id:
+                    try:
+                        from app.services.research_task_service import get_research_task_service
+                        await get_research_task_service().mark_failed(task_id, str(e))
+                    except Exception:
+                        pass
                 logger.error(f"❌ 市场情报报告生成失败({report_type}): {e}", exc_info=True)
 
         async def run_research_report_digest():
             """晚间研报深度摘要。"""
+            task_id = None
             try:
                 logger.info("📚 开始市场情报研报深度摘要...")
                 from app.services.market_intelligence_service import get_market_intelligence_service
+                from app.services.research_task_service import get_research_task_service
 
+                task_service = get_research_task_service()
+                task = await task_service.create_task(
+                    user_id="system",
+                    title="市场情报研报深度摘要",
+                    module="market_intelligence",
+                    task_type="market_intelligence_report",
+                    parameters={"report_type": "research_digest", "scheduler_job_id": "research_report_digest"},
+                    route_path="/market-intelligence",
+                    source="scheduler",
+                    tags=["市场情报", "研报", "定时任务"],
+                )
+                task_id = task["task_id"]
+                await task_service.mark_processing(task_id, "定时任务正在生成研报深度摘要", progress=15)
                 service = await get_market_intelligence_service()
                 report = await service.run_research_report_digest()
+                await task_service.mark_completed(
+                    task_id,
+                    result={
+                        **report,
+                        "report_id": str(report.get("_id") or report.get("report_id") or ""),
+                        "route_path": "/market-intelligence",
+                    },
+                    message="市场情报研报深度摘要完成",
+                )
                 logger.info(f"✅ 研报深度摘要完成: {report.get('title')}")
             except Exception as e:
+                if task_id:
+                    try:
+                        from app.services.research_task_service import get_research_task_service
+                        await get_research_task_service().mark_failed(task_id, str(e))
+                    except Exception:
+                        pass
                 logger.error(f"❌ 研报深度摘要失败: {e}", exc_info=True)
 
         scheduler.add_job(

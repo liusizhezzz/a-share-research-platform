@@ -152,6 +152,7 @@ export const analysisApi = {
     page?: number
     page_size?: number
     market_type?: string
+    task_module?: string
     symbol?: string  // 主字段：股票代码
     stock_code?: string  // 兼容字段（已废弃）
     start_date?: string
@@ -196,7 +197,7 @@ export const analysisApi = {
   },
 
   // 获取任务列表（新版 simple service）
-  getTaskList(params?: { status?: string; limit?: number; offset?: number }): Promise<any>{
+  getTaskList(params?: { status?: string; task_module?: string; limit?: number; offset?: number }): Promise<any>{
     return request.get('/api/analysis/tasks', { params })
   },
 
@@ -476,7 +477,5 @@ export const getStockPlaceholder = (market: string): string => {
   }
   return placeholders[market] ?? '输入股票代码'
 }
-
-
 
 

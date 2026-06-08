@@ -17,6 +17,7 @@ from app.services.queue_service import get_queue_service, QueueService
 from app.services.analysis_service import get_analysis_service
 from app.services.simple_analysis_service import get_simple_analysis_service
 from app.services.websocket_manager import get_websocket_manager
+from app.services.research_task_service import get_research_task_service
 from app.models.analysis import (
     SingleAnalysisRequest, BatchAnalysisRequest, AnalysisParameters,
     AnalysisTaskResponse, AnalysisBatchResponse, AnalysisHistoryQuery
@@ -209,6 +210,30 @@ async def get_task_status_new(
                     "message": "任务状态获取成功（从历史记录恢复）"
                 }
             else:
+                research_task = await get_research_task_service().get_task(task_id)
+                if research_task:
+                    logger.info(f"✅ [STATUS] 从research_tasks找到任务: {task_id}")
+                    return {
+                        "success": True,
+                        "data": {
+                            "task_id": task_id,
+                            "status": research_task.get("status", "pending"),
+                            "progress": research_task.get("progress", 0),
+                            "message": research_task.get("message", ""),
+                            "current_step": research_task.get("current_step", ""),
+                            "start_time": research_task.get("start_time") or research_task.get("created_at"),
+                            "end_time": research_task.get("end_time") or research_task.get("completed_at"),
+                            "symbol": None,
+                            "stock_code": None,
+                            "stock_symbol": None,
+                            "stock_name": research_task.get("display_title") or research_task.get("title"),
+                            "task_kind": "research",
+                            "module": research_task.get("module"),
+                            "task_type": research_task.get("task_type"),
+                            "source": "research_tasks",
+                        },
+                        "message": "任务状态获取成功（投研任务）"
+                    }
                 logger.warning(f"❌ [STATUS] MongoDB中也未找到: {task_id} trace={task_id}")
                 raise HTTPException(status_code=404, detail="任务不存在")
 
@@ -339,6 +364,14 @@ async def get_task_result(
                     }
 
         if not result_data:
+            research_task = await get_research_task_service().get_task(task_id)
+            if research_task:
+                logger.info(f"✅ [RESULT] 从research_tasks找到任务结果: {task_id}")
+                return {
+                    "success": True,
+                    "data": get_research_task_service().to_result_payload(research_task),
+                    "message": "投研任务结果获取成功"
+                }
             logger.warning(f"❌ [RESULT] 所有数据源都未找到结果: {task_id}")
             raise HTTPException(status_code=404, detail="分析结果不存在")
 
@@ -707,6 +740,7 @@ async def get_task_result(
 async def list_all_tasks(
     user: dict = Depends(get_current_user),
     status: Optional[str] = Query(None, description="任务状态过滤"),
+    task_module: Optional[str] = Query(None, description="任务模块过滤: stock_analysis|market_intelligence|investment_daily"),
     limit: int = Query(20, ge=1, le=100, description="返回数量限制"),
     offset: int = Query(0, ge=0, description="偏移量")
 ):
@@ -714,17 +748,32 @@ async def list_all_tasks(
     try:
         logger.info(f"📋 查询所有任务列表")
 
-        tasks = await get_simple_analysis_service().list_all_tasks(
-            status=status,
-            limit=limit,
-            offset=offset
-        )
+        tasks = []
+        if task_module in (None, "", "stock_analysis"):
+            tasks = await get_simple_analysis_service().list_all_tasks(
+                status=status,
+                limit=limit * 2,
+                offset=0
+            )
+        if task_module in (None, "", "market_intelligence", "investment_daily"):
+            research_result = await get_research_task_service().list_tasks(
+                status=status,
+                module=task_module if task_module in {"market_intelligence", "investment_daily"} else None,
+                limit=limit * 2,
+                offset=0,
+            )
+            tasks.extend(research_result["tasks"])
+        if task_module == "stock_analysis":
+            tasks = [task for task in tasks if task.get("task_kind") != "research"]
+        tasks.sort(key=lambda x: x.get("start_time") or x.get("created_at") or "", reverse=True)
+        total = len(tasks)
+        tasks = tasks[offset:offset + limit]
 
         return {
             "success": True,
             "data": {
                 "tasks": tasks,
-                "total": len(tasks),
+                "total": total,
                 "limit": limit,
                 "offset": offset
             },
@@ -739,6 +788,7 @@ async def list_all_tasks(
 async def list_user_tasks(
     user: dict = Depends(get_current_user),
     status: Optional[str] = Query(None, description="任务状态过滤"),
+    task_module: Optional[str] = Query(None, description="任务模块过滤: stock_analysis|market_intelligence|investment_daily"),
     limit: int = Query(20, ge=1, le=100, description="返回数量限制"),
     offset: int = Query(0, ge=0, description="偏移量")
 ):
@@ -746,18 +796,34 @@ async def list_user_tasks(
     try:
         logger.info(f"📋 查询用户任务列表: {user['id']}")
 
-        tasks = await get_simple_analysis_service().list_user_tasks(
-            user_id=user["id"],
-            status=status,
-            limit=limit,
-            offset=offset
-        )
+        tasks = []
+        if task_module in (None, "", "stock_analysis"):
+            tasks = await get_simple_analysis_service().list_user_tasks(
+                user_id=user["id"],
+                status=status,
+                limit=limit * 2,
+                offset=0
+            )
+
+        if task_module in (None, "", "market_intelligence", "investment_daily"):
+            research_result = await get_research_task_service().list_tasks(
+                user_id=str(user["id"]),
+                status=status,
+                module=task_module if task_module in {"market_intelligence", "investment_daily"} else None,
+                limit=limit * 2,
+                offset=0,
+            )
+            tasks.extend(research_result["tasks"])
+
+        tasks.sort(key=lambda x: x.get("start_time") or x.get("created_at") or "", reverse=True)
+        total = len(tasks)
+        tasks = tasks[offset:offset + limit]
 
         return {
             "success": True,
             "data": {
                 "tasks": tasks,
-                "total": len(tasks),
+                "total": total,
                 "limit": limit,
                 "offset": offset
             },
@@ -990,18 +1056,29 @@ async def get_user_analysis_history(
     symbol: Optional[str] = Query(None, description="股票代码"),
     stock_code: Optional[str] = Query(None, description="股票代码(已废弃,使用symbol)"),
     market_type: Optional[str] = Query(None, description="市场类型"),
+    task_module: Optional[str] = Query(None, description="任务模块过滤: stock_analysis|market_intelligence|investment_daily"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页大小")
 ):
     """获取用户分析历史（支持基础筛选与分页）"""
     try:
-        # 先获取用户任务列表（内存优先，MongoDB兜底）
-        raw_tasks = await get_simple_analysis_service().list_user_tasks(
-            user_id=user["id"],
-            status=status,
-            limit=page_size,
-            offset=(page - 1) * page_size
-        )
+        raw_tasks = []
+        if task_module in (None, "", "stock_analysis"):
+            raw_tasks = await get_simple_analysis_service().list_user_tasks(
+                user_id=user["id"],
+                status=status,
+                limit=page_size * 3,
+                offset=0
+            )
+        if task_module in (None, "", "market_intelligence", "investment_daily"):
+            research_result = await get_research_task_service().list_tasks(
+                user_id=str(user["id"]),
+                status=status,
+                module=task_module if task_module in {"market_intelligence", "investment_daily"} else None,
+                limit=page_size * 3,
+                offset=0,
+            )
+            raw_tasks.extend(research_result["tasks"])
 
         # 进行基础筛选
         from datetime import datetime
@@ -1030,6 +1107,10 @@ async def get_user_analysis_history(
 
         filtered = []
         for x in raw_tasks:
+            if task_module == "stock_analysis" and x.get("task_kind") == "research":
+                continue
+            if task_module in {"market_intelligence", "investment_daily"} and x.get("module") != task_module:
+                continue
             if query_symbol:
                 task_symbol = x.get("symbol") or x.get("stock_code") or x.get("stock_symbol")
                 if task_symbol not in [query_symbol]:
@@ -1045,11 +1126,16 @@ async def get_user_analysis_history(
                 continue
             filtered.append(x)
 
+        filtered.sort(key=lambda x: x.get("start_time") or x.get("created_at") or "", reverse=True)
+        total = len(filtered)
+        start = (page - 1) * page_size
+        filtered = filtered[start:start + page_size]
+
         return {
             "success": True,
             "data": {
                 "tasks": filtered,
-                "total": len(filtered),
+                "total": total,
                 "page": page,
                 "page_size": page_size
             },
@@ -1210,6 +1296,13 @@ async def mark_task_as_failed(
                 "success": True,
                 "message": "任务已标记为失败"
             }
+        research_marked = await get_research_task_service().mark_task_failed(task_id)
+        if research_marked:
+            logger.info(f"✅ 投研任务 {task_id} 已标记为失败")
+            return {
+                "success": True,
+                "message": "投研任务已标记为失败"
+            }
         else:
             logger.warning(f"⚠️ 任务 {task_id} 未找到或已是失败状态")
             return {
@@ -1247,6 +1340,13 @@ async def delete_task(
             return {
                 "success": True,
                 "message": "任务已删除"
+            }
+        research_deleted = await get_research_task_service().delete_task(task_id)
+        if research_deleted:
+            logger.info(f"✅ 投研任务 {task_id} 已删除")
+            return {
+                "success": True,
+                "message": "投研任务已删除"
             }
         else:
             logger.warning(f"⚠️ 任务 {task_id} 未找到")

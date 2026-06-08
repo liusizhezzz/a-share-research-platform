@@ -12,8 +12,18 @@ from app.services.market_intelligence_service import (
     get_market_intelligence_service,
 )
 from app.services.market_evidence_service import get_market_evidence_service
+from app.services.research_task_service import get_research_task_service
 
 router = APIRouter(prefix="/api/market-intelligence", tags=["market-intelligence"])
+
+
+REPORT_TYPE_LABELS = {
+    "pre_market": "开盘前市场情报报告",
+    "intraday": "盘中市场情报快报",
+    "closing": "收盘复盘",
+    "event_flash": "突发事件影响卡片",
+    "research_digest": "研报深度摘要",
+}
 
 
 @router.get("/latest", response_model=dict)
@@ -38,7 +48,36 @@ async def generate_market_intelligence_report(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"不支持的报告类型: {report_type}",
         )
-    report = await service.generate_report(report_type=report_type, force_refresh=force_refresh)
+    task_service = get_research_task_service()
+    task = await task_service.create_task(
+        user_id=str(current_user.get("id") or current_user.get("_id") or "system"),
+        title=REPORT_TYPE_LABELS.get(report_type, "市场情报报告"),
+        module="market_intelligence",
+        task_type="market_intelligence_report",
+        parameters={"report_type": report_type, "force_refresh": force_refresh},
+        route_path="/market-intelligence",
+        source="manual",
+        tags=["市场情报", "报告生成"],
+    )
+    task_id = task["task_id"]
+    try:
+        await task_service.mark_processing(task_id, "正在生成市场情报报告", progress=15)
+        report = await service.generate_report(report_type=report_type, force_refresh=force_refresh)
+        report_id = str(report.get("_id") or report.get("report_id") or "")
+        result_payload = {
+            **report,
+            "report_id": report_id,
+            "route_path": "/market-intelligence",
+        }
+        await task_service.mark_completed(
+            task_id,
+            result=result_payload,
+            message=f"{REPORT_TYPE_LABELS.get(report_type, '市场情报报告')}生成完成",
+        )
+        report["task_id"] = task_id
+    except Exception as exc:
+        await task_service.mark_failed(task_id, str(exc))
+        raise
     return ok(data=report, message="市场情报报告生成成功")
 
 
@@ -115,10 +154,37 @@ async def analyze_event_impact(
     current_user: dict = Depends(get_current_user),
 ):
     service = await get_market_intelligence_service()
-    try:
-        analysis = await service.analyze_event_impact(event_id, force=force)
-    except ValueError:
+    task_service = get_research_task_service()
+    event = await service.get_global_event(event_id)
+    if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="全球事件不存在")
+    task = await task_service.create_task(
+        user_id=str(current_user.get("id") or current_user.get("_id") or "system"),
+        title=f"事件影响分析：{event.get('title') or event_id}",
+        module="market_intelligence",
+        task_type="event_impact_analysis",
+        parameters={"event_id": event_id, "force": force},
+        related_id=event_id,
+        route_path="/market-intelligence",
+        source="manual",
+        tags=["市场情报", "事件分析"],
+    )
+    task_id = task["task_id"]
+    try:
+        await task_service.mark_processing(task_id, "正在分析事件影响链", progress=20)
+        analysis = await service.analyze_event_impact(event_id, force=force)
+        analysis["task_id"] = task_id
+        await task_service.mark_completed(
+            task_id,
+            result={**analysis, "route_path": "/market-intelligence"},
+            message="事件影响分析完成",
+        )
+    except ValueError:
+        await task_service.mark_failed(task_id, "全球事件不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="全球事件不存在")
+    except Exception as exc:
+        await task_service.mark_failed(task_id, str(exc))
+        raise
     return ok(data=analysis, message="事件影响分析完成")
 
 
