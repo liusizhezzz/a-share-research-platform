@@ -1074,8 +1074,7 @@ class MarketIntelligenceService:
             cluster["event_count"] += 1
             if event.get("event_id"):
                 cluster["event_ids"].add(event.get("event_id"))
-                document_key = event.get("document_key")
-                if not cluster["document_keys"] or (document_key and document_key in cluster["document_keys"]):
+                if not cluster["document_keys"]:
                     cluster["direct_event_ids"].add(event.get("event_id"))
             cluster["sources"].add(str(event.get("source") or "全球事件"))
             cluster["themes"].update(event.get("mapped_themes") or [])
