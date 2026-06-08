@@ -56,22 +56,22 @@
 
     <template v-if="dashboard">
       <div class="kpi-grid">
-        <div class="kpi-panel clickable" @click="showMethodology">
+        <div class="kpi-panel clickable" @click="openMetricDetail('temperature')">
           <div class="kpi-label"><el-icon><TrendCharts /></el-icon>市场温度</div>
           <div class="kpi-value">{{ formatScore(marketTemperature) }}</div>
           <div class="kpi-sub">主题均分 / 资金量价等待确认</div>
         </div>
-        <div class="kpi-panel clickable" @click="showMethodology">
+        <div class="kpi-panel clickable" @click="openMetricDetail('risk')">
           <div class="kpi-label"><el-icon><WarningFilled /></el-icon>全球风险</div>
           <div class="kpi-value danger">{{ formatScore(globalRisk) }}</div>
           <div class="kpi-sub">{{ dashboard.global_events.length }} 个事件</div>
         </div>
-        <div class="kpi-panel clickable" @click="showMethodology">
+        <div class="kpi-panel clickable" @click="openMetricDetail('coverage')">
           <div class="kpi-label"><el-icon><Connection /></el-icon>数据覆盖</div>
           <div class="kpi-value">{{ dashboard.source_coverage.score }}%</div>
           <div class="kpi-sub">{{ dashboard.source_coverage.label }}</div>
         </div>
-        <div class="kpi-panel">
+        <div class="kpi-panel clickable" @click="openMetricDetail('automation')">
           <div class="kpi-label"><el-icon><Timer /></el-icon>自动化</div>
           <div class="kpi-value">5min</div>
           <div class="kpi-sub">最近抓取 {{ formatTime(dashboard.last_ingested_at) }}</div>
@@ -468,6 +468,14 @@ const handleStockSelect = (stock: StockOpportunity) => {
   router.push({ name: 'StockDetail', params: { code: stock.code } })
 }
 
+const openMetricDetail = (metric: 'temperature' | 'risk' | 'coverage' | 'automation') => {
+  router.push({
+    name: 'MarketIntelligenceMetricDetail',
+    params: { metric },
+    query: { hours: String(hours.value) }
+  })
+}
+
 const filterCluster = (cluster: EventCluster) => {
   selectedClusterId.value = cluster.cluster_id
   const event = resolveClusterEvent(cluster)
@@ -643,7 +651,6 @@ const scoreClusterEvent = (cluster: EventCluster, event: GlobalEvent) => {
     if (eventTokens.has(token)) score += 5
   })
   const hasTitleMatch = Boolean(cluster.title && event.title && (cluster.title.includes(event.title) || event.title.includes(cluster.title)))
-  const hasSymbolMatch = (cluster.symbols || []).some((symbol) => (event.mapped_stocks || []).includes(symbol))
   const tokenOverlapCount = Array.from(clusterTokens).filter((token) => eventTokens.has(token)).length
   const documentTypes = cluster.document_types || []
   const isCommentOnly = Boolean(documentTypes.length) && documentTypes.every((type) => type === 'social_comment')

@@ -133,6 +133,16 @@ const routes: RouteRecordRaw[] = [
           title: '市场情报',
           requiresAuth: true
         }
+      },
+      {
+        path: 'metrics/:metric',
+        name: 'MarketIntelligenceMetricDetail',
+        component: () => import('@/views/MarketIntelligence/MetricDetail.vue'),
+        meta: {
+          title: '指标解析',
+          requiresAuth: true,
+          hideInMenu: true
+        }
       }
     ]
   },
