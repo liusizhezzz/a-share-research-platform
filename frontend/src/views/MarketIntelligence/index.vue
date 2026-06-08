@@ -191,7 +191,7 @@
             class="event-feed-panel"
             :items="dashboard.event_feed"
             :selected-event-id="selectedEventId"
-            @select="selectEventById($event)"
+            @select="selectEventById($event, { openDrawer: true, analyze: true })"
           />
         </section>
       </div>
