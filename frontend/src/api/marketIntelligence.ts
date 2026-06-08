@@ -167,6 +167,11 @@ export interface StockOpportunity {
   sentiment_score?: number
   funds_score?: number
   price_score?: number
+  long_term_score?: number
+  event_exposure_score?: number
+  evidence_score?: number
+  social_score?: number
+  supply_chain_score?: number
   risk_score?: number
   pct_chg?: number
   amount?: number
@@ -180,6 +185,10 @@ export interface StockOpportunity {
   prediction_horizon?: string
   confidence?: number
   price_in_penalty?: number
+  candidate_scope?: string
+  universe_source?: string
+  candidate_reason?: string
+  matched_themes?: string[]
   score_breakdown?: ScoreBreakdown
 }
 

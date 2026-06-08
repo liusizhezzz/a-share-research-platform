@@ -18,6 +18,12 @@
     <el-table-column prop="signal_strength" label="确认" width="82" sortable>
       <template #default="{ row }">{{ formatNumber(row.signal_strength) }}</template>
     </el-table-column>
+    <el-table-column prop="long_term_score" label="长线" width="82" sortable>
+      <template #default="{ row }">{{ formatNumber(row.long_term_score) }}</template>
+    </el-table-column>
+    <el-table-column prop="candidate_scope" label="候选范围" width="132">
+      <template #default="{ row }">{{ row.candidate_scope || '全市场扫描' }}</template>
+    </el-table-column>
     <el-table-column prop="price_in_penalty" label="Price-in" width="90" sortable>
       <template #default="{ row }">{{ formatNumber(row.price_in_penalty) }}</template>
     </el-table-column>
@@ -37,7 +43,8 @@
           公告 {{ row.announcement_count || 0 }} / 研报 {{ row.research_count || 0 }} /
           量化 {{ row.quant_count || 0 }}
         </div>
-        <div class="headline">{{ row.headlines?.[0] || '暂无代表线索' }}</div>
+        <div class="headline">{{ row.candidate_reason || row.headlines?.[0] || '暂无代表线索' }}</div>
+        <div class="source-line">{{ row.universe_source || '全市场扫描' }}</div>
       </template>
     </el-table-column>
   </el-table>
@@ -89,11 +96,16 @@ const scoreTag = (value?: number) => {
 }
 
 .stock-sub,
-.headline {
+.headline,
+.source-line {
   margin-top: 3px;
   color: #8090aa;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.source-line {
+  color: #5d6f8e;
 }
 
 .evidence-line {

@@ -172,6 +172,18 @@ SOURCE_WEIGHTS = {
     "eastmoney_guba": 0.72,
 }
 
+THEME_INDUSTRY_HINTS: Dict[str, List[str]] = {
+    "AI算力": ["通信", "光模块", "光器件", "光通信", "数据中心", "服务器", "云计算", "算力", "液冷", "PCB", "高速连接", "软件", "计算机", "互联网"],
+    "半导体": ["半导体", "芯片", "集成电路", "晶圆", "封测", "半导体设备", "半导体材料", "存储", "光刻", "EDA", "功率器件"],
+    "机器人": ["机器人", "自动化", "伺服", "减速器", "传感器", "机器视觉", "工业母机", "控制器", "智能制造"],
+    "新能源": ["新能源", "电池", "锂电", "储能", "光伏", "风电", "充电", "电力设备", "电源设备", "逆变器", "电机", "汽车零部件", "宁德", "阳光电源"],
+    "军工安全": ["军工", "航天", "航空", "卫星", "无人机", "雷达", "船舶", "兵器", "信息安全", "网络安全", "低空"],
+    "医药医疗": ["医药", "医疗", "器械", "创新药", "CXO", "生物", "疫苗", "中药", "化学制药", "医疗服务"],
+    "消费出海": ["家电", "消费", "食品", "饮料", "服装", "跨境", "电商", "旅游", "酒店", "出口", "轻工", "纺织", "品牌"],
+    "资源通胀": ["有色", "黄金", "铜", "铝", "稀土", "煤炭", "石油", "油气", "化工", "钢铁", "农产品", "航运"],
+    "金融地产": ["银行", "证券", "券商", "保险", "地产", "房地产", "多元金融", "信托", "并购", "资产管理"],
+}
+
 WORLD_MONITOR_LAYERS: List[Dict[str, Any]] = [
     {
         "id": "geopolitics",
@@ -323,9 +335,21 @@ class RunCounter:
 def _sigmoid_score(value: float, *, midpoint: float = 0.0, scale: float = 1.0) -> float:
     scale = scale or 1.0
     try:
+        if not math.isfinite(value) or not math.isfinite(midpoint) or not math.isfinite(scale):
+            return 0.0
         return 100.0 / (1.0 + math.exp(-(value - midpoint) / scale))
     except OverflowError:
         return 0.0 if value < midpoint else 100.0
+
+
+def _finite_float(value: Any, default: float = 0.0) -> float:
+    number = _safe_float(value, default)
+    try:
+        if not math.isfinite(number):
+            return default
+    except TypeError:
+        return default
+    return number
 
 
 def _score_label(score: float) -> str:
@@ -600,7 +624,7 @@ class MarketIntelligenceService:
         crawler_statuses = await self.get_source_status()
 
         theme_nodes = self._build_theme_heatmap(documents, events)
-        stock_opportunities = await self._build_stock_opportunities(documents, theme_nodes)
+        stock_opportunities = await self._build_stock_opportunities(documents, theme_nodes, events)
         industry_matrix = self._build_industry_matrix(theme_nodes)
         event_chains = self._build_event_impact_chains(events, theme_nodes, stock_opportunities)
         event_clusters = self._build_event_clusters(documents, events)
@@ -1190,10 +1214,10 @@ class MarketIntelligenceService:
 
     def _stock_methodology(self) -> Dict[str, Any]:
         return {
-            "formula": "20%量化信号 + 18%主题/事件暴露 + 14%新闻情绪 + 10%民众评论 + 15%资金确认 + 12%量价结构 + 8%基本面兑现 + 8%供应链/出口暴露 - 风险反噬 - price-in惩罚",
-            "normalization_method": "每个因子先映射到0-100；数量类因子使用sigmoid或百分位，情绪类因子从[-1,1]映射到[0,100]",
-            "prediction_horizon": "下一次开盘至未来1-3个交易日",
-            "not_buy_rule": "已大涨或涨停股票只有在新增催化、资金确认且price-in惩罚较低时保留为候选",
+            "formula": "22%中长线基本面/产业位势 + 18%主题/事件暴露 + 14%新闻/研报/公告证据 + 10%民众评论 + 15%资金确认 + 11%量价结构 + 10%供应链/出口暴露 - 风险反噬 - price-in惩罚",
+            "normalization_method": "候选池先做全市场扫描，再叠加事件推导范围；数量类因子使用sigmoid，估值/市值/换手映射为中长线位势，情绪从[-1,1]映射到[0,100]，禁止简单min(100, raw)打满分",
+            "prediction_horizon": "中长线1-3个月；事件催化跟踪1-3个交易日",
+            "not_buy_rule": "已大涨或涨停股票只有在新增催化、资金确认且price-in惩罚较低时保留为候选；缺少直接新闻不再给0分，但会降低证据分和置信度",
         }
 
     async def _event_evidence_docs(self, event: Dict[str, Any], *, limit: int = 60) -> List[Dict[str, Any]]:
@@ -1705,7 +1729,7 @@ class MarketIntelligenceService:
         ).sort("published_at", -1).limit(100).to_list(length=100)
         events = [self._ensure_event_layers(event) for event in events]
         theme_nodes = self._build_theme_heatmap(documents, events)
-        stock_opportunities = await self._build_stock_opportunities(documents, theme_nodes)
+        stock_opportunities = await self._build_stock_opportunities(documents, theme_nodes, events)
         return {"theme_heatmap_nodes": theme_nodes, "stock_opportunities": stock_opportunities}
 
     def _ensure_event_layers(self, event: Dict[str, Any]) -> Dict[str, Any]:
@@ -1899,129 +1923,429 @@ class MarketIntelligenceService:
         nodes.sort(key=lambda item: item["score"], reverse=True)
         return nodes[:18]
 
-    async def _build_stock_opportunities(self, documents: List[Dict[str, Any]], themes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        theme_score = {theme["name"]: _safe_float(theme.get("score")) for theme in themes}
-        by_code: Dict[str, Dict[str, Any]] = {}
-        for doc in documents:
-            for code in doc.get("symbols", []):
+    async def _build_stock_opportunities(
+        self,
+        documents: List[Dict[str, Any]],
+        themes: List[Dict[str, Any]],
+        events: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Dict[str, Any]]:
+        theme_score = {theme["name"]: _finite_float(theme.get("score")) for theme in themes}
+        active_theme_names = [theme.get("name") for theme in themes[:8] if theme.get("name")]
+        event_theme_scores: Dict[str, float] = {}
+        event_mapped_stocks: Dict[str, List[Dict[str, Any]]] = {}
+        for event in events or []:
+            severity = _finite_float(event.get("severity"))
+            for theme in event.get("mapped_themes") or []:
+                event_theme_scores[theme] = max(event_theme_scores.get(theme, 0.0), severity)
+            for code in event.get("mapped_stocks") or []:
                 clean = _normalize_code(code)
-                if not clean:
+                if clean:
+                    event_mapped_stocks.setdefault(clean, []).append(event)
+        active_theme_names = list(dict.fromkeys(active_theme_names + sorted(event_theme_scores, key=event_theme_scores.get, reverse=True)))
+        if not active_theme_names:
+            active_theme_names = list(THEME_KEYWORDS.keys())
+
+        by_code: Dict[str, Dict[str, Any]] = {}
+
+        def ensure_item(code: str) -> Optional[Dict[str, Any]]:
+            clean = _normalize_code(code)
+            if not clean:
+                return None
+            item = by_code.setdefault(clean, {
+                "code": clean,
+                "name": "",
+                "industry": "",
+                "theme": "",
+                "matched_themes": [],
+                "identity_themes": [],
+                "universe_sources": [],
+                "universe_reasons": [],
+                "raw_evidence_score": 0.0,
+                "news_count": 0,
+                "comment_count": 0,
+                "research_count": 0,
+                "announcement_count": 0,
+                "quant_count": 0,
+                "sentiment_total": 0.0,
+                "sentiment_docs": 0,
+                "sentiment_score": 0.0,
+                "funds_score": 42.0,
+                "price_score": 45.0,
+                "long_term_score": 45.0,
+                "event_exposure_score": 35.0,
+                "evidence_score": 35.0,
+                "social_score": 35.0,
+                "supply_chain_score": 42.0,
+                "risk_score": 0.0,
+                "headlines": [],
+                "documents": [],
+                "linked_events": [],
+            })
+            return item
+
+        def add_source(item: Dict[str, Any], source: str, reason: str) -> None:
+            if source and source not in item["universe_sources"]:
+                item["universe_sources"].append(source)
+            if reason and reason not in item["universe_reasons"] and len(item["universe_reasons"]) < 6:
+                item["universe_reasons"].append(reason)
+
+        for doc in documents:
+            doc_symbols = [_normalize_code(code) for code in doc.get("symbols", [])]
+            doc_symbols = [code for code in doc_symbols if code]
+            for code in doc_symbols:
+                item = ensure_item(code)
+                if not item:
                     continue
-                item = by_code.setdefault(clean, {
-                    "code": clean,
-                    "name": "",
-                    "industry": "",
-                    "theme": "",
-                    "raw_evidence_score": 0.0,
-                    "news_count": 0,
-                    "comment_count": 0,
-                    "research_count": 0,
-                    "announcement_count": 0,
-                    "quant_count": 0,
-                    "sentiment_score": 0.0,
-                    "funds_score": 0.0,
-                    "price_score": 0.0,
-                    "risk_score": 0.0,
-                    "headlines": [],
-                    "documents": [],
-                })
+                add_source(item, "直接证据", "新闻/评论/研报/公告证据池直接提及该股票")
                 doc_type = doc.get("document_type")
                 item["news_count"] += 1 if doc_type in {"news", "stock_news"} else 0
                 item["comment_count"] += 1 if doc_type == "social_comment" else 0
                 item["research_count"] += 1 if doc_type == "research_report" else 0
                 item["announcement_count"] += 1 if doc_type == "announcement" else 0
                 item["quant_count"] += 1 if doc_type == "quant_signal" else 0
-                item["sentiment_score"] += _safe_float(doc.get("sentiment_score"))
-                item["raw_evidence_score"] += 1 + _safe_float(doc.get("influence_score")) / 100
+                item["sentiment_total"] += _finite_float(doc.get("sentiment_score"))
+                item["sentiment_docs"] += 1
+                item["raw_evidence_score"] += 1 + _finite_float(doc.get("influence_score")) / 100
                 for theme in doc.get("themes", []):
+                    if theme not in item["matched_themes"]:
+                        item["matched_themes"].append(theme)
                     item["raw_evidence_score"] += theme_score.get(theme, 0) / 100
-                    if not item["theme"]:
-                        item["theme"] = theme
-                if len(item["headlines"]) < 4:
+                if len(item["headlines"]) < 5:
                     item["headlines"].append(doc.get("title"))
-                if len(item["documents"]) < 8:
+                if len(item["documents"]) < 10:
                     item["documents"].append(_jsonable(doc))
 
-        if not by_code:
-            return []
+        for code, mapped_events in event_mapped_stocks.items():
+            item = ensure_item(code)
+            if not item:
+                continue
+            add_source(item, "全球事件映射", "全球事件显式映射到该股票")
+            item["linked_events"].extend(_jsonable(event) for event in mapped_events[:4])
+            for event in mapped_events:
+                for theme in event.get("mapped_themes") or []:
+                    if theme not in item["matched_themes"]:
+                        item["matched_themes"].append(theme)
 
-        basics = await self.db.stock_basic_info.find({"code": {"$in": list(by_code.keys())}}).to_list(length=len(by_code) * 2)
-        for basic in basics:
-            code = _normalize_code(basic.get("code"))
-            if code in by_code:
-                by_code[code]["name"] = basic.get("name") or by_code[code]["name"]
-                by_code[code]["industry"] = basic.get("industry") or by_code[code]["industry"]
-
-        quotes = await self.db.market_quotes.find({"code": {"$in": list(by_code.keys())}}).to_list(length=len(by_code))
+        quote_projection = {
+            "_id": 0,
+            "code": 1,
+            "symbol": 1,
+            "name": 1,
+            "pct_chg": 1,
+            "amount": 1,
+            "volume": 1,
+            "close": 1,
+            "price": 1,
+            "updated_at": 1,
+        }
+        quotes = await self.db.market_quotes.find({}, quote_projection).sort("amount", -1).limit(6200).to_list(length=6200)
+        quote_by_code: Dict[str, Dict[str, Any]] = {}
         for quote in quotes:
-            code = _normalize_code(quote.get("code"))
-            if code in by_code:
-                pct = _safe_float(quote.get("pct_chg"))
-                amount = _safe_float(quote.get("amount"))
-                by_code[code]["pct_chg"] = pct
-                by_code[code]["amount"] = amount
-                by_code[code]["price"] = _safe_float(quote.get("price") or quote.get("close"))
-                by_code[code]["price_score"] = round(max(0, min(100, 50 + pct * 6 - max(0, pct - 7) * 10)), 2)
-                by_code[code]["funds_score"] = round(_sigmoid_score(amount / 1_000_000_000, midpoint=3.0, scale=2.5), 2)
+            code = _normalize_code(quote.get("code") or quote.get("symbol"))
+            if not code:
+                continue
+            quote_by_code[code] = quote
+            item = ensure_item(code)
+            if not item:
+                continue
+            add_source(item, "全市场行情", "来自 market_quotes 全市场行情池，不再只看涨幅榜")
+            item["name"] = quote.get("name") or item["name"]
+            pct = _finite_float(quote.get("pct_chg"))
+            amount = _finite_float(quote.get("amount"))
+            item["pct_chg"] = pct
+            item["amount"] = amount
+            item["volume"] = _finite_float(quote.get("volume"))
+            item["price"] = _finite_float(quote.get("price") or quote.get("close"))
+            item["price_score"] = self._price_structure_score(pct)
+            item["funds_score"] = round(_sigmoid_score(amount / 1_000_000_000, midpoint=2.2, scale=2.0), 2) if amount else 42.0
 
-        result = []
-        for item in by_code.values():
-            total_docs = max(
+        basic_projection = {
+            "_id": 0,
+            "code": 1,
+            "symbol": 1,
+            "name": 1,
+            "industry": 1,
+            "market": 1,
+            "area": 1,
+            "total_mv": 1,
+            "circ_mv": 1,
+            "pe": 1,
+            "pe_ttm": 1,
+            "pb": 1,
+            "pb_mrq": 1,
+            "ps": 1,
+            "turnover_rate": 1,
+            "volume_ratio": 1,
+            "list_date": 1,
+        }
+        basics = await self.db.stock_basic_info.find({}, basic_projection).limit(7000).to_list(length=7000)
+        basic_by_code: Dict[str, Dict[str, Any]] = {}
+        for basic in basics:
+            code = _normalize_code(basic.get("code") or basic.get("symbol"))
+            if not code:
+                continue
+            basic_by_code[code] = basic
+            item = ensure_item(code)
+            if not item:
+                continue
+            add_source(item, "全市场基础库", "来自 stock_basic_info 全市场基础库")
+            item["name"] = basic.get("name") or item["name"]
+            item["industry"] = basic.get("industry") or basic.get("market") or item["industry"]
+            inferred_themes = self._infer_stock_themes(basic, quote_by_code.get(code, {}), list(THEME_KEYWORDS.keys()))
+            item["identity_themes"] = list(dict.fromkeys((item.get("identity_themes") or []) + inferred_themes))
+            for theme in inferred_themes:
+                if theme not in item["matched_themes"]:
+                    item["matched_themes"].append(theme)
+            if inferred_themes:
+                add_source(item, "事件/主题产业链", f"公司行业/名称匹配当前主题：{','.join(inferred_themes[:3])}")
+
+        result: List[Dict[str, Any]] = []
+        methodology = self._stock_methodology()
+        for code, item in by_code.items():
+            basic = basic_by_code.get(code, {})
+            quote = quote_by_code.get(code, {})
+            name_text = str(item.get("name") or basic.get("name") or quote.get("name") or "")
+            if not self._is_a_share_candidate(code, name_text):
+                continue
+            item["matched_themes"] = [theme for theme in item["matched_themes"] if theme in THEME_KEYWORDS]
+            if not item["matched_themes"]:
+                item["matched_themes"] = self._infer_stock_themes(basic, quote, active_theme_names)
+            if item["matched_themes"]:
+                primary_pool = item.get("identity_themes") or item["matched_themes"]
+                item["theme"] = max(
+                    primary_pool,
+                    key=lambda theme: theme_score.get(theme, 38.0) + event_theme_scores.get(theme, 0.0) * (0.25 if item.get("identity_themes") else 1.0),
+                )
+            else:
+                item["theme"] = item.get("industry") or "未映射"
+
+            evidence_count = (
                 item["news_count"]
                 + item["comment_count"]
                 + item["research_count"]
                 + item["announcement_count"]
-                + item["quant_count"],
-                1,
+                + item["quant_count"]
             )
-            item["sentiment_score"] = round(item["sentiment_score"] / total_docs, 3)
-            news_component = _sigmoid_score(item["news_count"] + item["research_count"] * 1.5 + item["announcement_count"] * 1.8, midpoint=4.0, scale=3.0)
-            social_component = _sigmoid_score(item["comment_count"], midpoint=12.0, scale=10.0)
+            sentiment_divisor = max(item["sentiment_docs"], 1)
+            item["sentiment_score"] = round(item["sentiment_total"] / sentiment_divisor, 3)
             sentiment_component = max(0.0, min(100.0, 50 + item["sentiment_score"] * 50))
-            theme_component = theme_score.get(item.get("theme") or "", 45)
-            quant_component = 70 if item["quant_count"] else 42
-            supply_component = 56 if item.get("theme") in {"消费出海", "新能源", "半导体", "AI算力"} else 45
-            price_in_penalty = max(0.0, (_safe_float(item.get("pct_chg")) - 6.5) * 8)
-            if item["sentiment_score"] < -0.3:
-                item["risk_score"] += 15
+            item["evidence_score"] = round(max(
+                32.0,
+                _sigmoid_score(
+                    item["news_count"]
+                    + item["research_count"] * 1.7
+                    + item["announcement_count"] * 2.0
+                    + item["quant_count"] * 1.3
+                    + item["raw_evidence_score"] * 0.7,
+                    midpoint=4.5,
+                    scale=3.4,
+                ),
+            ), 2)
+            item["social_score"] = round(
+                _sigmoid_score(item["comment_count"], midpoint=18.0, scale=12.0)
+                if item["comment_count"]
+                else 38.0,
+                2,
+            )
+            event_exposure = self._stock_event_exposure_score(item["matched_themes"], event_theme_scores, event_mapped_stocks.get(code, []))
+            item["event_exposure_score"] = round(event_exposure, 2)
+            theme_component = max(
+                [theme_score.get(theme, 38.0) for theme in item["matched_themes"]]
+                + [event_exposure * 0.9, 35.0]
+            )
+            item["long_term_score"] = round(self._long_term_stock_score(basic, quote, item["matched_themes"]), 2)
+            item["supply_chain_score"] = round(self._supply_chain_score(item["matched_themes"], event_theme_scores), 2)
+            price_in_penalty = self._price_in_penalty(_finite_float(item.get("pct_chg")), evidence_count, item["event_exposure_score"])
+            risk_score = self._stock_risk_score(item, basic, quote)
+            item["risk_score"] = round(risk_score, 2)
             score = (
-                quant_component * 0.20
+                item["long_term_score"] * 0.22
                 + theme_component * 0.18
-                + sentiment_component * 0.14
-                + social_component * 0.10
-                + _safe_float(item.get("funds_score")) * 0.15
-                + _safe_float(item.get("price_score")) * 0.12
-                + news_component * 0.08
-                + supply_component * 0.08
-                - _safe_float(item["risk_score"])
+                + item["evidence_score"] * 0.14
+                + item["social_score"] * 0.10
+                + _finite_float(item.get("funds_score")) * 0.15
+                + _finite_float(item.get("price_score")) * 0.11
+                + item["supply_chain_score"] * 0.10
+                - risk_score
                 - price_in_penalty
             )
             item["price_in_penalty"] = round(price_in_penalty, 2)
             item["score"] = round(max(0, min(100, score)), 2)
-            item["signal_strength"] = round(max(0, min(100, item["score"] * 0.68 + _safe_float(item.get("funds_score")) * 0.18 + _safe_float(item.get("price_score")) * 0.14)), 2)
-            item["prediction_horizon"] = "下一次开盘至未来1-3个交易日"
-            item["confidence"] = round(max(0.2, min(0.92, (total_docs / 18) * 0.35 + item["score"] / 100 * 0.45 + (1 if item["quant_count"] else 0) * 0.12)), 3)
+            item["signal_strength"] = round(max(0, min(
+                100,
+                _finite_float(item.get("funds_score")) * 0.32
+                + _finite_float(item.get("price_score")) * 0.26
+                + item["evidence_score"] * 0.22
+                + sentiment_component * 0.10
+                + theme_component * 0.10
+                - price_in_penalty * 0.35
+                - risk_score * 0.25,
+            )), 2)
+            item["prediction_horizon"] = "中长线1-3个月；事件催化跟踪1-3个交易日"
+            item["confidence"] = round(max(0.18, min(
+                0.92,
+                0.18
+                + (0.16 if basic else 0)
+                + (0.14 if quote else 0)
+                + min(evidence_count, 16) / 16 * 0.20
+                + min(len(item["matched_themes"]), 3) * 0.06
+                + min(item["event_exposure_score"], 90) / 100 * 0.12,
+            )), 3)
+            item["candidate_scope"] = "事件推导+全市场扫描" if item["matched_themes"] else "全市场扫描"
+            item["universe_source"] = " / ".join(item["universe_sources"][:4])
+            item["candidate_reason"] = "；".join(item["universe_reasons"][:4])
             item["score_breakdown"] = {
-                "formula": self._stock_methodology()["formula"],
+                "formula": methodology["formula"],
                 "input_values": {
-                    "quant_component": round(quant_component, 2),
+                    "long_term_score": item["long_term_score"],
                     "theme_component": round(theme_component, 2),
+                    "event_exposure_score": item["event_exposure_score"],
+                    "news_research_announcement_evidence": item["evidence_score"],
                     "sentiment_component": round(sentiment_component, 2),
-                    "social_component": round(social_component, 2),
+                    "social_score": item["social_score"],
                     "funds_score": item.get("funds_score", 0),
                     "price_score": item.get("price_score", 0),
-                    "news_component": round(news_component, 2),
-                    "supply_component": supply_component,
-                    "risk_score": round(_safe_float(item["risk_score"]), 2),
-                    "price_in_penalty": round(price_in_penalty, 2),
+                    "supply_chain_score": item["supply_chain_score"],
+                    "risk_score": item["risk_score"],
+                    "price_in_penalty": item["price_in_penalty"],
+                    "evidence_count": evidence_count,
+                    "matched_themes": item["matched_themes"],
+                    "identity_themes": item.get("identity_themes", []),
+                    "universe_sources": item["universe_sources"],
+                    "candidate_scope": item["candidate_scope"],
+                    "pct_chg": round(_finite_float(item.get("pct_chg")), 2),
+                    "amount": round(_finite_float(item.get("amount")), 2),
+                    "pe": _finite_float(basic.get("pe_ttm") or basic.get("pe")) if basic else None,
+                    "pb": _finite_float(basic.get("pb_mrq") or basic.get("pb")) if basic else None,
+                    "total_mv_yi": _finite_float(basic.get("total_mv")) if basic else None,
                 },
-                "normalization_method": self._stock_methodology()["normalization_method"],
+                "normalization_method": methodology["normalization_method"],
             }
+            item.pop("sentiment_total", None)
+            item.pop("sentiment_docs", None)
             if not item["name"]:
                 item["name"] = item["code"]
             result.append(item)
-        result.sort(key=lambda item: item["score"], reverse=True)
-        return result[:40]
+
+        result.sort(key=lambda item: (
+            item["score"],
+            item.get("event_exposure_score", 0),
+            item.get("evidence_score", 0),
+            item.get("signal_strength", 0),
+        ), reverse=True)
+        return result[:60]
+
+    def _is_a_share_candidate(self, code: str, name: str) -> bool:
+        if not re.fullmatch(r"\d{6}", code or ""):
+            return False
+        if code.startswith(("200", "900")):
+            return False
+        normalized_name = (name or "").upper()
+        if "退" in normalized_name or normalized_name.startswith(("ST", "*ST", "SST")):
+            return False
+        return code.startswith(("000", "001", "002", "003", "300", "301", "600", "601", "603", "605", "688", "689", "430", "830", "831", "832", "833", "834", "835", "836", "837", "838", "839", "870", "871", "872", "873", "920"))
+
+    def _infer_stock_themes(
+        self,
+        basic: Dict[str, Any],
+        quote: Dict[str, Any],
+        active_theme_names: List[str],
+    ) -> List[str]:
+        text = " ".join(
+            str(value or "")
+            for value in [
+                basic.get("name"),
+                quote.get("name"),
+                basic.get("industry"),
+                basic.get("market"),
+                basic.get("area"),
+            ]
+        )
+        themes: List[str] = []
+        for theme in active_theme_names:
+            keywords = list(THEME_KEYWORDS.get(theme, [])) + THEME_INDUSTRY_HINTS.get(theme, [])
+            if self._matches(text=text, keywords=keywords):
+                themes.append(theme)
+        return list(dict.fromkeys(themes))
+
+    def _price_structure_score(self, pct: float) -> float:
+        if pct == 0:
+            return 48.0
+        if pct >= 9.2:
+            return 34.0
+        if pct > 6.5:
+            return round(max(35.0, 70.0 - (pct - 6.5) * 10.0), 2)
+        if pct >= 0:
+            return round(min(78.0, 52.0 + pct * 4.4), 2)
+        return round(max(24.0, 50.0 + pct * 4.2), 2)
+
+    def _price_in_penalty(self, pct: float, evidence_count: int, event_exposure_score: float) -> float:
+        if pct <= 6.5:
+            return 0.0
+        fresh_catalyst_relief = min(0.45, evidence_count * 0.035 + event_exposure_score / 1000)
+        penalty = (pct - 6.5) * 8.0 * (1 - fresh_catalyst_relief)
+        if pct >= 9.2:
+            penalty += 8.0 * (1 - fresh_catalyst_relief)
+        return round(max(0.0, penalty), 2)
+
+    def _stock_event_exposure_score(
+        self,
+        matched_themes: List[str],
+        event_theme_scores: Dict[str, float],
+        mapped_events: List[Dict[str, Any]],
+    ) -> float:
+        theme_severity = max([_finite_float(event_theme_scores.get(theme, 0.0)) for theme in matched_themes] or [0.0])
+        direct_severity = max([_finite_float(event.get("severity")) for event in mapped_events] or [0.0])
+        if not theme_severity and not direct_severity:
+            return 35.0
+        novelty = _sigmoid_score(len(matched_themes) + len(mapped_events), midpoint=2.0, scale=2.0)
+        return max(35.0, min(100.0, max(theme_severity, direct_severity) * 0.72 + novelty * 0.28))
+
+    def _supply_chain_score(self, matched_themes: List[str], event_theme_scores: Dict[str, float]) -> float:
+        if not matched_themes:
+            return 42.0
+        strategic_themes = {"AI算力", "半导体", "新能源", "军工安全", "资源通胀", "消费出海", "机器人"}
+        base = 50.0 + sum(4.0 for theme in matched_themes if theme in strategic_themes)
+        event_boost = max([_finite_float(event_theme_scores.get(theme, 0.0)) for theme in matched_themes] or [0.0]) * 0.18
+        return max(38.0, min(88.0, base + event_boost))
+
+    def _long_term_stock_score(self, basic: Dict[str, Any], quote: Dict[str, Any], matched_themes: List[str]) -> float:
+        if not basic and not quote:
+            return 40.0
+        total_mv = _finite_float(basic.get("total_mv") or basic.get("circ_mv"))
+        pe = _finite_float(basic.get("pe_ttm") or basic.get("pe"))
+        pb = _finite_float(basic.get("pb_mrq") or basic.get("pb"))
+        turnover = _finite_float(basic.get("turnover_rate"))
+        mv_component = 50.0
+        if total_mv > 0:
+            mv_component = _sigmoid_score(math.log10(total_mv + 1), midpoint=2.05, scale=0.38)
+        pe_component = 52.0
+        if pe > 0:
+            pe_component = max(20.0, min(78.0, 74.0 - abs(pe - 28.0) * 0.85))
+        pb_component = 52.0
+        if pb > 0:
+            pb_component = max(22.0, min(72.0, 68.0 - abs(pb - 3.0) * 5.5))
+        turnover_component = 48.0
+        if turnover > 0:
+            turnover_component = max(35.0, min(70.0, 44.0 + min(turnover, 6.0) * 4.3))
+        strategic_bonus = min(12.0, len(set(matched_themes).intersection({"AI算力", "半导体", "机器人", "新能源", "军工安全"})) * 4.0)
+        return max(25.0, min(88.0, mv_component * 0.34 + pe_component * 0.22 + pb_component * 0.16 + turnover_component * 0.12 + 44.0 * 0.16 + strategic_bonus))
+
+    def _stock_risk_score(self, item: Dict[str, Any], basic: Dict[str, Any], quote: Dict[str, Any]) -> float:
+        risk = 0.0
+        pct = _finite_float(item.get("pct_chg") or quote.get("pct_chg"))
+        name = str(item.get("name") or basic.get("name") or quote.get("name") or "").upper()
+        if item.get("sentiment_score", 0) < -0.32:
+            risk += 10.0
+        if pct <= -7:
+            risk += 8.0
+        if pct >= 9.2 and item.get("evidence_score", 0) < 60:
+            risk += 7.0
+        if "ST" in name or "退" in name:
+            risk += 35.0
+        if not item.get("amount") and quote:
+            risk += 4.0
+        return risk
 
     def _build_industry_matrix(self, themes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         dimensions = ["主题热度", "舆情", "事件风险", "资金确认", "量价共振", "基本面"]
