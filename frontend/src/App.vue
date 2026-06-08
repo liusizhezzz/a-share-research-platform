@@ -3,6 +3,8 @@
     <!-- 网络状态指示器 -->
     <NetworkStatus />
 
+    <div v-if="appStore.loading" class="global-loading" aria-hidden="true"></div>
+
     <!-- 主要内容区域 -->
     <router-view v-slot="{ Component, route }">
       <transition
@@ -30,6 +32,7 @@ import { ElMessage } from 'element-plus'
 import NetworkStatus from '@/components/NetworkStatus.vue'
 import axios from 'axios'
 import { configApi } from '@/api/config'
+import { useAppStore } from '@/stores/app'
 
 // 需要缓存的组件
 const keepAliveComponents = computed(() => [
@@ -40,6 +43,7 @@ const keepAliveComponents = computed(() => [
 
 // 配置向导
 const showConfigWizard = ref(false)
+const appStore = useAppStore()
 
 // 检查是否需要显示配置向导
 const checkFirstTimeSetup = async () => {

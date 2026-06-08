@@ -468,6 +468,7 @@ router.beforeEach(async (to, from, next) => {
 
   const authStore = useAuthStore()
   const appStore = useAppStore()
+  appStore.setLoading(true, 18)
 
   // 设置页面标题
   const title = to.meta.title as string
@@ -515,6 +516,8 @@ router.beforeEach(async (to, from, next) => {
 router.afterEach((to, from) => {
   // 结束进度条
   NProgress.done()
+  const appStore = useAppStore()
+  appStore.setLoading(false)
 
   // 页面切换后的处理
   nextTick(() => {
@@ -526,6 +529,8 @@ router.afterEach((to, from) => {
 router.onError((error) => {
   console.error('路由错误:', error)
   NProgress.done()
+  const appStore = useAppStore()
+  appStore.setLoading(false)
   ElMessage.error('页面加载失败，请重试')
 })
 

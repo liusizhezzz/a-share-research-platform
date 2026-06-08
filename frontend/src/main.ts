@@ -133,6 +133,13 @@ const initApp = async () => {
   } finally {
     // 无论认证状态如何，都挂载应用
     app.mount('#app')
+    const bootSplash = document.getElementById('app-boot-splash')
+    if (bootSplash) {
+      requestAnimationFrame(() => {
+        bootSplash.classList.add('boot-splash--hidden')
+        window.setTimeout(() => bootSplash.remove(), 360)
+      })
+    }
     console.log('🚀 应用已挂载')
   }
 }

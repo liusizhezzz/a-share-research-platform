@@ -50,7 +50,42 @@
       :title="`数据源预警：${staleSources.map((item) => item.name).join('、')} 超过15分钟未成功抓取`"
     />
 
-    <el-empty v-if="!loading && !dashboard" description="暂无市场情报数据">
+    <div v-if="(loading || generating) && !dashboard" class="research-loading-state intelligence-loading" aria-live="polite">
+      <div class="research-loading-copy">
+        <span class="research-loading-spinner" aria-hidden="true"></span>
+        <div>
+          <div class="research-loading-title">
+            {{ generating ? '正在生成市场情报报告' : '正在加载最新市场情报' }}
+          </div>
+          <div class="research-loading-subtitle">
+            正在同步事件、新闻、评论、研报、行情和候选股信号。
+          </div>
+        </div>
+      </div>
+      <div class="research-loading-kpis">
+        <div v-for="item in ['市场温度', '全球风险', '数据覆盖', '自动化']" :key="item" class="research-loading-card">
+          <span>{{ item }}</span>
+          <strong></strong>
+        </div>
+      </div>
+      <div class="research-loading-layout">
+        <div class="research-loading-map">
+          <span>准备全球事件地图</span>
+        </div>
+        <div class="research-loading-stack">
+          <div class="research-loading-block">聚合事件影响链</div>
+          <div class="research-loading-block">计算主题热力图</div>
+          <div class="research-loading-block">刷新个股机会表</div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="loading && dashboard" class="research-refresh-banner">
+      <span class="research-loading-spinner small" aria-hidden="true"></span>
+      正在增量刷新情报池、地图事件和候选股信号，当前看板保持可读。
+    </div>
+
+    <el-empty v-if="!loading && !generating && !dashboard" description="暂无市场情报数据">
       <el-button type="primary" @click="generateReport" :loading="generating">立即生成</el-button>
     </el-empty>
 

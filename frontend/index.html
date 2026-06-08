@@ -40,8 +40,117 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="TradingAgents-CN" />
     <link rel="apple-touch-icon" href="/logo.svg" />
+    <style>
+      body {
+        background: #0c1320;
+      }
+
+      .boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        color: #dce7f7;
+        background: linear-gradient(180deg, #0c1320 0%, #0d1521 52%, #101722 100%);
+        transition: opacity 0.28s ease, visibility 0.28s ease;
+      }
+
+      .boot-splash--hidden {
+        opacity: 0;
+        visibility: hidden;
+      }
+
+      .boot-card {
+        width: min(520px, 100%);
+        padding: 24px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 8px;
+        background: rgba(11, 18, 32, 0.88);
+        box-shadow: 0 24px 72px rgba(0, 0, 0, 0.34);
+      }
+
+      .boot-title {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 760;
+        letter-spacing: 0;
+        color: #f6f9ff;
+      }
+
+      .boot-subtitle {
+        margin: 8px 0 18px;
+        color: #92a0b8;
+        line-height: 1.6;
+      }
+
+      .boot-progress {
+        position: relative;
+        overflow: hidden;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.16);
+      }
+
+      .boot-progress::after {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 42%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #37d4b5, #60a5fa);
+        animation: boot-progress 1.25s ease-in-out infinite;
+      }
+
+      .boot-steps {
+        display: grid;
+        gap: 8px;
+        margin-top: 18px;
+        color: #a9b8d0;
+        font-size: 13px;
+      }
+
+      .boot-step {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .boot-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #37d4b5;
+        box-shadow: 0 0 0 4px rgba(55, 212, 181, 0.1);
+      }
+
+      @keyframes boot-progress {
+        0% {
+          transform: translateX(-110%);
+        }
+        55% {
+          transform: translateX(95%);
+        }
+        100% {
+          transform: translateX(245%);
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="app-boot-splash" class="boot-splash" role="status" aria-live="polite">
+      <div class="boot-card">
+        <h1 class="boot-title">正在加载投研工作台</h1>
+        <p class="boot-subtitle">首次打开会加载地图、图表和分析组件，请稍等片刻。</p>
+        <div class="boot-progress" aria-hidden="true"></div>
+        <div class="boot-steps">
+          <div class="boot-step"><span class="boot-dot"></span><span>加载前端资源</span></div>
+          <div class="boot-step"><span class="boot-dot"></span><span>连接市场情报服务</span></div>
+          <div class="boot-step"><span class="boot-dot"></span><span>准备地图与报告看板</span></div>
+        </div>
+      </div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

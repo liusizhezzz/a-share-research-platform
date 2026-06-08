@@ -34,7 +34,46 @@
       </div>
     </div>
 
-    <el-empty v-if="!loading && !report" description="暂无投资日报">
+    <div v-if="(loading || generating) && !report" class="research-loading-state daily-loading" aria-live="polite">
+      <div class="research-loading-copy">
+        <span class="research-loading-spinner" aria-hidden="true"></span>
+        <div>
+          <div class="research-loading-title">
+            {{ generating ? '正在生成今日日报' : '正在加载最新投资日报' }}
+          </div>
+          <div class="research-loading-subtitle">
+            正在读取滚动证据池、候选股、新闻事件簇和风险反证。
+          </div>
+        </div>
+      </div>
+      <div class="daily-loading-summary">
+        <div class="daily-loading-main">
+          <span></span>
+          <strong></strong>
+          <em></em>
+        </div>
+        <div class="daily-loading-score"></div>
+      </div>
+      <div class="research-loading-layout">
+        <div class="research-loading-stack">
+          <div class="research-loading-block">方向热度</div>
+          <div class="research-loading-block">股票候选</div>
+          <div class="research-loading-block">新闻事件簇</div>
+        </div>
+        <div class="research-loading-stack">
+          <div class="research-loading-block">国际与宏观</div>
+          <div class="research-loading-block">民众评论</div>
+          <div class="research-loading-block">风险与源状态</div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="loading && report" class="research-refresh-banner">
+      <span class="research-loading-spinner small" aria-hidden="true"></span>
+      正在刷新最新日报数据，当前报告内容保持可读。
+    </div>
+
+    <el-empty v-if="!loading && !generating && !report" description="暂无投资日报">
       <el-button type="primary" @click="generateReport" :loading="generating">立即生成</el-button>
     </el-empty>
 
