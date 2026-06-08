@@ -992,7 +992,7 @@ class MarketIntelligenceService:
         if not events:
             return None, 0.0
         event_by_id = {event.get("event_id"): event for event in events if event.get("event_id")}
-        direct_ids = [event_id for event_id in cluster.get("event_ids", set()) if event_id in event_by_id]
+        direct_ids = [event_id for event_id in cluster.get("direct_event_ids", set()) if event_id in event_by_id]
         if direct_ids:
             direct = max(direct_ids, key=lambda event_id: _safe_float(event_by_id[event_id].get("severity")))
             return event_by_id[direct], 999.0
@@ -1004,7 +1004,7 @@ class MarketIntelligenceService:
             if score > best_score:
                 best_event = event
                 best_score = score
-        if best_event and best_score >= 24.0:
+        if best_event and best_score >= 38.0:
             return best_event, best_score
         return None, best_score
 
@@ -1030,6 +1030,7 @@ class MarketIntelligenceService:
                 "influence_total": 0.0,
                 "event_count": 0,
                 "event_ids": set(),
+                "direct_event_ids": set(),
             })
             published = _parse_dt(doc.get("published_at"))
             cluster["document_keys"].append(doc.get("doc_key"))
@@ -1067,11 +1068,15 @@ class MarketIntelligenceService:
                 "influence_total": 0.0,
                 "event_count": 0,
                 "event_ids": set(),
+                "direct_event_ids": set(),
             })
             published = _parse_dt(event.get("published_at"))
             cluster["event_count"] += 1
             if event.get("event_id"):
                 cluster["event_ids"].add(event.get("event_id"))
+                document_key = event.get("document_key")
+                if not cluster["document_keys"] or (document_key and document_key in cluster["document_keys"]):
+                    cluster["direct_event_ids"].add(event.get("event_id"))
             cluster["sources"].add(str(event.get("source") or "全球事件"))
             cluster["themes"].update(event.get("mapped_themes") or [])
             cluster["symbols"].update(event.get("mapped_stocks") or [])

@@ -564,7 +564,7 @@ const resolveClusterEvent = (cluster: EventCluster) => {
       bestEvent = event
     }
   }
-  return bestScore >= 24 ? bestEvent : null
+  return bestScore >= 38 ? bestEvent : null
 }
 
 const buildLocalImpactChain = (event: GlobalEvent) => ({
