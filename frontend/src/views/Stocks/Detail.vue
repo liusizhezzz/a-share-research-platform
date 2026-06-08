@@ -229,7 +229,7 @@
                 </div>
                 <div class="right">{{ formatNewsTime(n.time) }}</div>
               </div>
-              <div class="meta">{{ n.source || '-' }} · {{ newsSource || '-' }}</div>
+              <div class="meta">{{ newsMeta(n) }}</div>
             </div>
           </div>
         </el-card>
@@ -909,7 +909,7 @@ async function fetchNews() {
     newsItems.value = itemsRaw.map((it: any) => {
       const title = cleanTitle(it.title || it.summary || it.name || '')
       const url = it.url || it.link || '#'
-      const source = it.source || d.source || ''
+      const source = it.source || ''
       const time = it.time || it.pub_time || it.publish_time || it.pub_date || ''
       const type = it.type || 'news'
       return { title, url, source, time, type }
@@ -1181,6 +1181,20 @@ function formatNewsTime(dateStr: string | null | undefined): string {
     console.error('新闻时间格式化错误:', e, dateStr)
     return String(dateStr)
   }
+}
+
+const technicalNewsSources = new Set(['database', 'realtime', 'none', 'mongodb', 'cache_or_api'])
+
+function cleanNewsSource(source: string | null | undefined): string {
+  const value = String(source || '').trim()
+  if (!value || technicalNewsSources.has(value.toLowerCase())) return ''
+  return value
+}
+
+function newsMeta(item: { source?: string }): string {
+  const media = cleanNewsSource(item.source)
+  const backend = cleanNewsSource(newsSource.value)
+  return [media, backend].filter(Boolean).join(' · ') || '-'
 }
 
 // 格式化报告名称

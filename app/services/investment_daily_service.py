@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import httpx
 from bson import ObjectId
@@ -150,6 +150,49 @@ def _parse_dt(value: Any) -> datetime:
         except Exception:
             continue
     return _utc_now()
+
+
+def _optional_dt(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            raw = float(value)
+            if raw > 10_000_000_000:
+                raw = raw / 1000
+            if raw > 10_000:
+                return datetime.fromtimestamp(raw)
+        except Exception:
+            return None
+    text = str(value).strip()
+    if not text or text in {"-", "None", "null", "nan"}:
+        return None
+    text = text.replace("T", " ").replace("Z", "")
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+    ):
+        try:
+            return datetime.strptime(text[: len(fmt)], fmt)
+        except Exception:
+            continue
+    match = re.search(r"(?:(\d{4})[年/-])?(\d{1,2})[月/-](\d{1,2})日?(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?", text)
+    if match:
+        year = int(match.group(1) or now_tz().year)
+        hour = int(match.group(4) or 0)
+        minute = int(match.group(5) or 0)
+        second = int(match.group(6) or 0)
+        try:
+            return datetime(year, int(match.group(2)), int(match.group(3)), hour, minute, second)
+        except Exception:
+            return None
+    return None
 
 
 def _sentiment_score(text: str) -> float:
@@ -516,6 +559,9 @@ class InvestmentDailyService:
                     "url": doc.get("url") or "",
                     "source": doc.get("source") or doc.get("data_source") or "滚动证据池",
                     "publish_time": doc.get("published_at"),
+                    "published_at_quality": (doc.get("metadata") or {}).get("published_at_quality") or "source",
+                    "first_seen_at": doc.get("first_seen_at"),
+                    "ingested_at": doc.get("ingested_at"),
                     "category": (doc.get("themes") or ["general"])[0],
                     "sentiment": doc.get("sentiment") or "neutral",
                     "sentiment_score": _safe_float(doc.get("sentiment_score")),
@@ -531,6 +577,9 @@ class InvestmentDailyService:
                         "message_type": "post",
                         "content": item["title"] or item["content"],
                         "publish_time": item["publish_time"],
+                        "published_at_quality": item.get("published_at_quality"),
+                        "first_seen_at": item.get("first_seen_at"),
+                        "ingested_at": item.get("ingested_at"),
                         "sentiment": item["sentiment"],
                         "sentiment_score": item["sentiment_score"],
                         "importance": item["importance"],
@@ -668,6 +717,60 @@ class InvestmentDailyService:
                 basics[code] = _jsonable(doc)
         return basics
 
+    def _resolve_source_published_at(self, item: Dict[str, Any], *, title: str, url: str) -> Tuple[datetime, str]:
+        explicit = next((
+            _optional_dt(item.get(field))
+            for field in (
+                "source_publish_time",
+                "publish_time",
+                "published_at",
+                "发布日期",
+                "发布时间",
+                "date",
+                "time",
+                "showTime",
+                "showtime",
+                "publishDate",
+                "ctime",
+                "createTime",
+                "updated_at",
+            )
+            if _optional_dt(item.get(field))
+        ), None)
+        inferred = self._infer_published_at_from_url_or_title(url=url, title=title)
+        local_now = now_tz().replace(tzinfo=None)
+        if inferred and (not explicit or (abs((explicit - local_now).total_seconds()) < 600 and abs((explicit - inferred).total_seconds()) > 6 * 3600)):
+            return inferred, "estimated_from_url_or_title"
+        if explicit:
+            return explicit, "source"
+        if inferred:
+            return inferred, "estimated_from_url_or_title"
+        return _utc_now(), "ingest_fallback"
+
+    def _infer_published_at_from_url_or_title(self, *, url: str, title: str) -> Optional[datetime]:
+        text = f"{url} {title}"
+        year = month = day = None
+        match = re.search(r"/a/(\d{8})\d*\.html", url or "")
+        if match:
+            raw = match.group(1)
+            year, month, day = int(raw[:4]), int(raw[4:6]), int(raw[6:8])
+        else:
+            title_match = re.search(r"(?:(\d{4})年)?(\d{1,2})月(\d{1,2})日", title or "")
+            if title_match:
+                year = int(title_match.group(1) or now_tz().year)
+                month = int(title_match.group(2))
+                day = int(title_match.group(3))
+        if not all([year, month, day]):
+            return None
+        hour = 18 if any(word in text for word in ("晚间", "晚报", "收盘", "复盘")) else 9
+        try:
+            inferred = datetime(int(year), int(month), int(day), hour, 0, 0)
+        except Exception:
+            return None
+        if inferred > now_tz().replace(tzinfo=None) + timedelta(hours=2):
+            return datetime(int(year), int(month), int(day), 9, 0, 0)
+        return inferred
+
     async def _fetch_eastmoney_search(
         self,
         keyword: str,
@@ -714,14 +817,18 @@ class InvestmentDailyService:
             if not title:
                 continue
             score = _sentiment_score(f"{title} {content}")
+            url = str(article.get("url") or article.get("Url") or "")
+            publish_time, publish_quality = self._resolve_source_published_at(article, title=title, url=url)
             items.append({
                 "symbol": symbol,
                 "title": title,
                 "content": content,
                 "summary": content[:220],
-                "url": str(article.get("url") or article.get("Url") or ""),
+                "url": url,
                 "source": str(article.get("source") or article.get("mediaName") or "东方财富"),
-                "publish_time": _parse_dt(article.get("date") or article.get("time") or article.get("showTime")),
+                "publish_time": publish_time,
+                "published_at_quality": publish_quality,
+                "ingested_at": _utc_now(),
                 "category": self._classify_category(title + content),
                 "sentiment": _sentiment_label(score),
                 "sentiment_score": score,
@@ -753,7 +860,9 @@ class InvestmentDailyService:
             content = str(article.get("content") or article.get("brief") or "")
             score = _sentiment_score(title + content)
             publish_raw = article.get("ctime") or article.get("time") or article.get("modified_time")
-            publish_time = datetime.fromtimestamp(publish_raw) if isinstance(publish_raw, (int, float)) and publish_raw > 10_000 else _parse_dt(publish_raw)
+            publish_time = _optional_dt(publish_raw)
+            publish_quality = "source" if publish_time else "ingest_fallback"
+            publish_time = publish_time or _utc_now()
             items.append({
                 "symbol": None,
                 "title": title[:160],
@@ -762,6 +871,8 @@ class InvestmentDailyService:
                 "url": str(article.get("shareurl") or article.get("url") or "https://www.cls.cn/telegraph"),
                 "source": "财联社",
                 "publish_time": publish_time,
+                "published_at_quality": publish_quality,
+                "ingested_at": _utc_now(),
                 "category": self._classify_category(title + content),
                 "sentiment": _sentiment_label(score),
                 "sentiment_score": score,

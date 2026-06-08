@@ -38,6 +38,10 @@ export interface DailyNewsItem {
   source?: string
   url?: string
   publish_time?: string
+  published_at_quality?: 'source' | 'estimated_from_url_or_title' | 'ingest_fallback' | string
+  first_seen_at?: string
+  ingested_at?: string
+  data_source?: string
   sentiment?: string
   importance?: string
   category?: string

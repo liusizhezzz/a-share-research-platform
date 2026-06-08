@@ -352,6 +352,49 @@ def _finite_float(value: Any, default: float = 0.0) -> float:
     return number
 
 
+def _optional_dt(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        try:
+            raw = float(value)
+            if raw > 10_000_000_000:
+                raw = raw / 1000
+            if raw > 10_000:
+                return datetime.fromtimestamp(raw)
+        except Exception:
+            return None
+    text = str(value).strip()
+    if not text or text in {"-", "None", "null", "nan"}:
+        return None
+    text = text.replace("T", " ").replace("Z", "")
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+    ):
+        try:
+            return datetime.strptime(text[: len(fmt)], fmt)
+        except Exception:
+            continue
+    match = re.search(r"(?:(\d{4})[年/-])?(\d{1,2})[月/-](\d{1,2})日?(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?", text)
+    if match:
+        year = int(match.group(1) or now_tz().year)
+        hour = int(match.group(4) or 0)
+        minute = int(match.group(5) or 0)
+        second = int(match.group(6) or 0)
+        try:
+            return datetime(year, int(match.group(2)), int(match.group(3)), hour, minute, second)
+        except Exception:
+            return None
+    return None
+
+
 def _score_label(score: float) -> str:
     if score >= 80:
         return "强"
@@ -1335,7 +1378,7 @@ class MarketIntelligenceService:
                         "content": str(row.get("报告摘要") or row.get("摘要") or row.get("summary") or ""),
                         "source": str(row.get("机构") or row.get("机构名称") or row.get("source") or "东方财富研报"),
                         "url": str(row.get("报告链接") or row.get("链接") or row.get("url") or ""),
-                        "publish_time": _parse_dt(publish),
+                        "publish_time": _optional_dt(publish),
                         "rating": str(row.get("评级") or row.get("投资评级") or ""),
                         "data_source": "akshare_research_report",
                     })
@@ -1450,12 +1493,12 @@ class MarketIntelligenceService:
     def _normalize_news_documents(self, items: Iterable[Dict[str, Any]], doc_type: str, window_start: datetime) -> List[Dict[str, Any]]:
         docs = []
         for item in items:
-            published = _parse_dt(item.get("publish_time"))
-            if published < window_start:
-                continue
             title = str(item.get("title") or "").strip()
             content = str(item.get("content") or item.get("summary") or "").strip()
             if not title:
+                continue
+            published, published_quality = self._resolve_source_published_at(item, title=title, url=str(item.get("url") or ""))
+            if published < window_start:
                 continue
             text = f"{title} {content}"
             symbol = _normalize_code(item.get("symbol"))
@@ -1470,7 +1513,10 @@ class MarketIntelligenceService:
                 themes=self._match_themes(text),
                 sentiment_score=_safe_float(item.get("sentiment_score"), _sentiment_score(text)),
                 data_source=str(item.get("data_source") or "news"),
-                metadata={k: _jsonable(v) for k, v in item.items() if k not in {"title", "content", "summary"}},
+                metadata={
+                    **{k: _jsonable(v) for k, v in item.items() if k not in {"title", "content", "summary"}},
+                    "published_at_quality": published_quality,
+                },
             ))
         return docs
 
@@ -1526,13 +1572,13 @@ class MarketIntelligenceService:
     def _normalize_research_documents(self, items: Iterable[Dict[str, Any]], window_start: datetime) -> List[Dict[str, Any]]:
         docs = []
         for item in items:
-            published = _parse_dt(item.get("publish_time"))
-            if published < window_start:
-                continue
             title = str(item.get("title") or "").strip()
             if not title:
                 continue
             content = str(item.get("content") or "")
+            published, published_quality = self._resolve_source_published_at(item, title=title, url=str(item.get("url") or ""))
+            if published < window_start:
+                continue
             text = f"{title} {content}"
             symbol = _normalize_code(item.get("symbol"))
             docs.append(self._document(
@@ -1546,9 +1592,64 @@ class MarketIntelligenceService:
                 themes=self._match_themes(text),
                 sentiment_score=_safe_float(item.get("sentiment_score"), _sentiment_score(text)),
                 data_source=str(item.get("data_source") or "akshare_research_report"),
-                metadata={k: _jsonable(v) for k, v in item.items() if k not in {"title", "content"}},
+                metadata={
+                    **{k: _jsonable(v) for k, v in item.items() if k not in {"title", "content"}},
+                    "published_at_quality": published_quality,
+                },
             ))
         return docs
+
+    def _resolve_source_published_at(self, item: Dict[str, Any], *, title: str, url: str) -> Tuple[datetime, str]:
+        raw_fields = (
+            "source_publish_time",
+            "publish_time",
+            "published_at",
+            "发布日期",
+            "发布时间",
+            "date",
+            "time",
+            "showTime",
+            "showtime",
+            "publishDate",
+            "publish_time",
+            "ctime",
+            "createTime",
+            "updated_at",
+        )
+        explicit = next((_optional_dt(item.get(field)) for field in raw_fields if _optional_dt(item.get(field))), None)
+        inferred = self._infer_published_at_from_url_or_title(url=url, title=title)
+        now = now_tz().replace(tzinfo=None)
+        if inferred and (not explicit or (abs((explicit - now).total_seconds()) < 600 and abs((explicit - inferred).total_seconds()) > 6 * 3600)):
+            return inferred, "estimated_from_url_or_title"
+        if explicit:
+            return explicit, "source"
+        if inferred:
+            return inferred, "estimated_from_url_or_title"
+        return now, "ingest_fallback"
+
+    def _infer_published_at_from_url_or_title(self, *, url: str, title: str) -> Optional[datetime]:
+        text = f"{url} {title}"
+        match = re.search(r"/a/(\d{8})\d*\.html", url or "")
+        year = month = day = None
+        if match:
+            raw = match.group(1)
+            year, month, day = int(raw[:4]), int(raw[4:6]), int(raw[6:8])
+        else:
+            title_match = re.search(r"(?:(\d{4})年)?(\d{1,2})月(\d{1,2})日", title or "")
+            if title_match:
+                year = int(title_match.group(1) or now_tz().year)
+                month = int(title_match.group(2))
+                day = int(title_match.group(3))
+        if not all([year, month, day]):
+            return None
+        hour = 18 if any(word in text for word in ("晚间", "晚报", "收盘", "复盘")) else 9
+        try:
+            inferred = datetime(int(year), int(month), int(day), hour, 0, 0)
+        except Exception:
+            return None
+        if inferred > now_tz().replace(tzinfo=None) + timedelta(hours=2):
+            return datetime(int(year), int(month), int(day), 9, 0, 0)
+        return inferred
 
     def _document(
         self,
@@ -1565,11 +1666,11 @@ class MarketIntelligenceService:
         data_source: str,
         metadata: Dict[str, Any],
     ) -> Dict[str, Any]:
-        doc_key = hashlib.sha1(
-            f"{url}|{title}|{published_at.isoformat()}|{source}".encode("utf-8")
-        ).hexdigest()
+        stable_identity = url.strip() or f"{document_type}|{source}|{title}|{','.join(sorted(symbols))}"
+        doc_key = hashlib.sha1(stable_identity.encode("utf-8")).hexdigest()
         source_weight = max(SOURCE_WEIGHTS.get(source, SOURCE_WEIGHTS.get(data_source, 1.0)), 0.5)
         influence = min(100.0, 45 + len(content) / 25 + len(themes) * 6 + source_weight * 8)
+        ingested_at = _utc_now()
         return {
             "doc_key": doc_key,
             "document_type": document_type,
@@ -1580,7 +1681,8 @@ class MarketIntelligenceService:
             "data_source": data_source,
             "url": url,
             "published_at": published_at,
-            "ingested_at": _utc_now(),
+            "first_seen_at": ingested_at,
+            "ingested_at": ingested_at,
             "symbols": [s for s in symbols if s],
             "themes": themes,
             "sentiment": _sentiment_label(sentiment_score),
@@ -1594,6 +1696,15 @@ class MarketIntelligenceService:
         saved = 0
         saved_by_source: Dict[str, int] = {}
         for doc in documents:
+            existing = await self.db.market_documents.find_one(
+                {"doc_key": doc["doc_key"]},
+                {"published_at": 1, "first_seen_at": 1, "ingested_at": 1, "metadata": 1},
+            )
+            if existing:
+                quality = ((doc.get("metadata") or {}).get("published_at_quality") or "")
+                if quality == "ingest_fallback" and existing.get("published_at"):
+                    doc["published_at"] = existing["published_at"]
+                doc["first_seen_at"] = existing.get("first_seen_at") or existing.get("ingested_at") or doc.get("first_seen_at")
             result = await self.db.market_documents.replace_one(
                 {"doc_key": doc["doc_key"]},
                 doc,

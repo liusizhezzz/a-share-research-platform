@@ -198,7 +198,7 @@
                 rel="noreferrer"
               >
                 <span class="news-title">{{ item.title }}</span>
-                <span class="news-meta">{{ item.source }} · {{ formatTime(item.publish_time) }}</span>
+                <span class="news-meta">{{ sourceLabel(item.source) }} · {{ newsTimeLabel(item) }}</span>
               </a>
             </div>
           </el-card>
@@ -251,8 +251,8 @@
               >
                 <div class="news-card-title">{{ item.title }}</div>
                 <div class="news-card-meta">
-                  <span>{{ item.source }}</span>
-                  <span>{{ formatTime(item.publish_time) }}</span>
+                  <span>{{ sourceLabel(item.source) }}</span>
+                  <span class="time-label">{{ newsTimeLabel(item) }}</span>
                   <el-tag size="small" :type="sentimentTag(item.sentiment)">{{ sentimentText(item.sentiment) }}</el-tag>
                 </div>
               </a>
@@ -301,7 +301,7 @@ import {
   TrendCharts,
   Warning
 } from '@element-plus/icons-vue'
-import { investmentDailyApi, type InvestmentDailyReport } from '@/api/investmentDaily'
+import { investmentDailyApi, type DailyNewsItem, type InvestmentDailyReport } from '@/api/investmentDaily'
 
 const router = useRouter()
 const loading = ref(false)
@@ -316,8 +316,8 @@ const sortedMarketNews = computed(() => {
   const items = [...(report.value?.market_news || [])]
   const direction = newsOrder.value === 'asc' ? 1 : -1
   return items.sort((a, b) => {
-    const left = new Date(a.publish_time || 0).getTime() || 0
-    const right = new Date(b.publish_time || 0).getTime() || 0
+    const left = new Date(newsTimestamp(a) || 0).getTime() || 0
+    const right = new Date(newsTimestamp(b) || 0).getTime() || 0
     return (left - right) * direction
   })
 })
@@ -405,6 +405,26 @@ const formatTime = (value?: string) => {
   } catch {
     return value
   }
+}
+
+const technicalSources = new Set(['database', 'realtime', 'none', 'mongodb', 'cache_or_api'])
+
+const sourceLabel = (source?: string) => {
+  const value = String(source || '').trim()
+  if (!value || technicalSources.has(value.toLowerCase())) return '未知来源'
+  return value
+}
+
+const newsTimestamp = (item: DailyNewsItem) => {
+  return item.publish_time || item.first_seen_at || item.ingested_at || ''
+}
+
+const newsTimeLabel = (item: DailyNewsItem) => {
+  const formatted = formatTime(newsTimestamp(item))
+  if (formatted === '-') return '-'
+  if (item.published_at_quality === 'ingest_fallback') return `首次收录 ${formatted}`
+  if (item.published_at_quality === 'estimated_from_url_or_title') return `估 ${formatted}`
+  return formatted
 }
 
 const formatPct = (value?: number) => {
