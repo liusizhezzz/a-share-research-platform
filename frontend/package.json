@@ -12,6 +12,9 @@
     "type-check": "vue-tsc --noEmit"
   },
   "dependencies": {
+    "@deck.gl/core": "^9.3.3",
+    "@deck.gl/layers": "^9.3.3",
+    "@deck.gl/mapbox": "^9.3.3",
     "@element-plus/icons-vue": "^2.3.1",
     "@types/sortablejs": "^1.15.8",
     "@vueuse/core": "^10.7.0",
@@ -20,6 +23,7 @@
     "echarts": "^5.4.3",
     "element-plus": "^2.4.4",
     "lodash-es": "^4.17.21",
+    "maplibre-gl": "^5.24.0",
     "marked": "^16.2.0",
     "mermaid": "^10",
     "nprogress": "^0.2.0",

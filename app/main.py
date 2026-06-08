@@ -28,7 +28,7 @@ from pathlib import Path
 from app.core.config import settings
 from app.core.database import init_db, close_db
 from app.core.logging_config import setup_logging
-from app.routers import auth_db as auth, analysis, screening, queue, sse, health, favorites, config, reports, database, operation_logs, tags, tushare_init, akshare_init, baostock_init, historical_data, multi_period_sync, financial_data, news_data, social_media, internal_messages, usage_statistics, model_capabilities, cache, logs, investment_daily
+from app.routers import auth_db as auth, analysis, screening, queue, sse, health, favorites, config, reports, database, operation_logs, tags, tushare_init, akshare_init, baostock_init, historical_data, multi_period_sync, financial_data, news_data, social_media, internal_messages, usage_statistics, model_capabilities, cache, logs, investment_daily, market_intelligence
 from app.routers import sync as sync_router, multi_source_sync
 from app.routers import stocks as stocks_router
 from app.routers import stock_data as stock_data_router
@@ -597,6 +597,145 @@ async def lifespan(app: FastAPI):
         else:
             logger.info(f"🗞️ 投资日报任务已配置: {settings.INVESTMENT_DAILY_CRON}")
 
+        async def run_market_data_ingest_interval():
+            """运行市场情报5分钟级增量抓取。"""
+            try:
+                logger.info("🌐 开始市场情报增量抓取...")
+                from app.services.market_intelligence_service import get_market_intelligence_service
+
+                service = await get_market_intelligence_service()
+                result = await service.ingest_incremental(
+                    job_id="market_data_ingest_interval",
+                    lookback_minutes=settings.MARKET_INTELLIGENCE_INCREMENTAL_WINDOW_MINUTES,
+                )
+                await service.maybe_generate_event_flash()
+                logger.info(
+                    f"✅ 市场情报增量抓取完成: "
+                    f"文档{result.get('documents_saved', 0)}/{result.get('documents_seen', 0)}, "
+                    f"事件{result.get('events_saved', 0)}/{result.get('events_seen', 0)}"
+                )
+            except Exception as e:
+                logger.error(f"❌ 市场情报增量抓取失败: {e}", exc_info=True)
+
+        async def run_pre_market_enrichment():
+            """开盘前增强抓取，回看36小时补全证据池。"""
+            try:
+                logger.info("🌅 开始市场情报开盘前增强抓取...")
+                from app.services.market_intelligence_service import get_market_intelligence_service
+
+                service = await get_market_intelligence_service()
+                result = await service.ingest_incremental(
+                    job_id="pre_market_enrichment",
+                    lookback_hours=settings.MARKET_INTELLIGENCE_ENRICHMENT_HOURS_BACK,
+                    force_refresh=True,
+                )
+                await service.maybe_generate_event_flash()
+                logger.info(
+                    f"✅ 开盘前增强抓取完成: 文档{result.get('documents_saved', 0)}, "
+                    f"事件{result.get('events_saved', 0)}"
+                )
+            except Exception as e:
+                logger.error(f"❌ 开盘前增强抓取失败: {e}", exc_info=True)
+
+        async def run_market_intelligence_report(report_type: str):
+            """生成市场情报报告。"""
+            try:
+                logger.info(f"🧭 开始生成市场情报报告: {report_type}")
+                from app.services.market_intelligence_service import get_market_intelligence_service
+
+                service = await get_market_intelligence_service()
+                report = await service.generate_report(report_type=report_type, force_refresh=False)
+                logger.info(
+                    f"✅ 市场情报报告生成完成: {report.get('title')} "
+                    f"({report.get('status')})"
+                )
+            except Exception as e:
+                logger.error(f"❌ 市场情报报告生成失败({report_type}): {e}", exc_info=True)
+
+        async def run_research_report_digest():
+            """晚间研报深度摘要。"""
+            try:
+                logger.info("📚 开始市场情报研报深度摘要...")
+                from app.services.market_intelligence_service import get_market_intelligence_service
+
+                service = await get_market_intelligence_service()
+                report = await service.run_research_report_digest()
+                logger.info(f"✅ 研报深度摘要完成: {report.get('title')}")
+            except Exception as e:
+                logger.error(f"❌ 研报深度摘要失败: {e}", exc_info=True)
+
+        scheduler.add_job(
+            run_market_data_ingest_interval,
+            IntervalTrigger(minutes=settings.MARKET_INTELLIGENCE_INGEST_INTERVAL_MINUTES, timezone=settings.TIMEZONE),
+            id="market_data_ingest_interval",
+            name="市场情报5分钟增量抓取"
+        )
+        scheduler.add_job(
+            run_pre_market_enrichment,
+            CronTrigger.from_crontab(settings.MARKET_INTELLIGENCE_PRE_MARKET_ENRICHMENT_CRON, timezone=settings.TIMEZONE),
+            id="pre_market_enrichment",
+            name="市场情报开盘前增强抓取"
+        )
+        scheduler.add_job(
+            run_market_intelligence_report,
+            CronTrigger.from_crontab(settings.MARKET_INTELLIGENCE_PRE_MARKET_REPORT_CRON, timezone=settings.TIMEZONE),
+            id="pre_market_report",
+            name="市场情报开盘前报告",
+            kwargs={"report_type": "pre_market"}
+        )
+        scheduler.add_job(
+            run_market_intelligence_report,
+            CronTrigger.from_crontab(settings.MARKET_INTELLIGENCE_INTRADAY_1030_CRON, timezone=settings.TIMEZONE),
+            id="intraday_refresh_1030",
+            name="市场情报盘中快报10:30",
+            kwargs={"report_type": "intraday"}
+        )
+        scheduler.add_job(
+            run_market_intelligence_report,
+            CronTrigger.from_crontab(settings.MARKET_INTELLIGENCE_INTRADAY_1330_CRON, timezone=settings.TIMEZONE),
+            id="intraday_refresh_1330",
+            name="市场情报盘中快报13:30",
+            kwargs={"report_type": "intraday"}
+        )
+        scheduler.add_job(
+            run_market_intelligence_report,
+            CronTrigger.from_crontab(settings.MARKET_INTELLIGENCE_INTRADAY_1445_CRON, timezone=settings.TIMEZONE),
+            id="intraday_refresh_1445",
+            name="市场情报盘中快报14:45",
+            kwargs={"report_type": "intraday"}
+        )
+        scheduler.add_job(
+            run_market_intelligence_report,
+            CronTrigger.from_crontab(settings.MARKET_INTELLIGENCE_CLOSING_REVIEW_CRON, timezone=settings.TIMEZONE),
+            id="closing_review",
+            name="市场情报收盘复盘",
+            kwargs={"report_type": "closing"}
+        )
+        scheduler.add_job(
+            run_research_report_digest,
+            CronTrigger.from_crontab(settings.MARKET_INTELLIGENCE_RESEARCH_DIGEST_CRON, timezone=settings.TIMEZONE),
+            id="research_report_digest",
+            name="市场情报研报深度摘要"
+        )
+        if not settings.MARKET_INTELLIGENCE_ENABLED:
+            for job_id in (
+                "market_data_ingest_interval",
+                "pre_market_enrichment",
+                "pre_market_report",
+                "intraday_refresh_1030",
+                "intraday_refresh_1330",
+                "intraday_refresh_1445",
+                "closing_review",
+                "research_report_digest",
+            ):
+                scheduler.pause_job(job_id)
+            logger.info("⏸️ 市场情报自动化任务已添加但暂停")
+        else:
+            logger.info(
+                f"🌐 市场情报自动化任务已配置: 每 "
+                f"{settings.MARKET_INTELLIGENCE_INGEST_INTERVAL_MINUTES} 分钟增量抓取"
+            )
+
         scheduler.start()
 
         # 设置调度器实例到服务中，以便API可以管理任务
@@ -757,6 +896,7 @@ app.include_router(news_data.router, tags=["news-data"])
 app.include_router(social_media.router, tags=["social-media"])
 app.include_router(internal_messages.router, tags=["internal-messages"])
 app.include_router(investment_daily.router, tags=["investment-daily"])
+app.include_router(market_intelligence.router, tags=["market-intelligence"])
 
 
 @app.get("/")

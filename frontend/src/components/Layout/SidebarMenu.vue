@@ -42,6 +42,11 @@
       <template #title>我的自选股</template>
     </el-menu-item>
 
+    <el-menu-item index="/market-intelligence">
+      <el-icon><DataAnalysis /></el-icon>
+      <template #title>市场情报</template>
+    </el-menu-item>
+
     <el-menu-item index="/investment-daily">
       <el-icon><Document /></el-icon>
       <template #title>投资日报</template>
@@ -114,6 +119,7 @@ import {
   Search,
   Star,
   List,
+  DataAnalysis,
   Document,
   Setting,
   InfoFilled,

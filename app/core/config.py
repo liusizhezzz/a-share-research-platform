@@ -284,6 +284,23 @@ class Settings(BaseSettings):
     INVESTMENT_DAILY_MAX_STOCKS: int = Field(default=10, ge=3, le=30)
     INVESTMENT_DAILY_SIGNAL_DIR: str = Field(default="./data/quant_signals")
 
+    # ===== 自动化市场情报平台配置 =====
+    MARKET_INTELLIGENCE_ENABLED: bool = Field(default=True)
+    MARKET_INTELLIGENCE_INGEST_INTERVAL_MINUTES: int = Field(default=5, ge=1, le=60)
+    MARKET_INTELLIGENCE_INCREMENTAL_WINDOW_MINUTES: int = Field(default=30, ge=5, le=240)
+    MARKET_INTELLIGENCE_FORCE_LOOKBACK_HOURS: int = Field(default=36, ge=6, le=168)
+    MARKET_INTELLIGENCE_ENRICHMENT_HOURS_BACK: int = Field(default=36, ge=6, le=168)
+    MARKET_INTELLIGENCE_MAX_STOCKS: int = Field(default=20, ge=5, le=80)
+    MARKET_INTELLIGENCE_NEWS_LIMIT: int = Field(default=120, ge=20, le=500)
+    MARKET_INTELLIGENCE_HIGH_SEVERITY_THRESHOLD: float = Field(default=72.0, ge=0, le=100)
+    MARKET_INTELLIGENCE_PRE_MARKET_ENRICHMENT_CRON: str = Field(default="20 8 * * 1-5")
+    MARKET_INTELLIGENCE_PRE_MARKET_REPORT_CRON: str = Field(default="35 8 * * 1-5")
+    MARKET_INTELLIGENCE_INTRADAY_1030_CRON: str = Field(default="30 10 * * 1-5")
+    MARKET_INTELLIGENCE_INTRADAY_1330_CRON: str = Field(default="30 13 * * 1-5")
+    MARKET_INTELLIGENCE_INTRADAY_1445_CRON: str = Field(default="45 14 * * 1-5")
+    MARKET_INTELLIGENCE_CLOSING_REVIEW_CRON: str = Field(default="30 16 * * 1-5")
+    MARKET_INTELLIGENCE_RESEARCH_DIGEST_CRON: str = Field(default="30 19 * * 1-5")
+
     @property
     def is_production(self) -> bool:
         """是否为生产环境"""

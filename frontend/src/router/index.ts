@@ -115,6 +115,28 @@ const routes: RouteRecordRaw[] = [
     ]
   },
   {
+    path: '/market-intelligence',
+    name: 'MarketIntelligence',
+    component: () => import('@/layouts/BasicLayout.vue'),
+    meta: {
+      title: '市场情报',
+      icon: 'DataAnalysis',
+      requiresAuth: true,
+      transition: 'fade'
+    },
+    children: [
+      {
+        path: '',
+        name: 'MarketIntelligenceHome',
+        component: () => import('@/views/MarketIntelligence/index.vue'),
+        meta: {
+          title: '市场情报',
+          requiresAuth: true
+        }
+      }
+    ]
+  },
+  {
     path: '/investment-daily',
     name: 'InvestmentDaily',
     component: () => import('@/layouts/BasicLayout.vue'),
