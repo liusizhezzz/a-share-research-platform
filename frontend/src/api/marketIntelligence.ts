@@ -35,6 +35,9 @@ export interface GlobalEvent {
   mapped_themes?: string[]
   mapped_stocks?: string[]
   map_layers?: string[]
+  source_category?: string
+  intel_lens?: string
+  evidence_kind?: string
 }
 
 export interface MapLayerDefinition {
@@ -61,6 +64,8 @@ export interface EventFeedItem {
   layers?: string[]
   mapped_themes?: string[]
   affected_assets?: string[]
+  source_category?: string
+  intel_lens?: string
 }
 
 export interface CorridorRisk {
@@ -84,6 +89,8 @@ export interface SourceEnvelope {
   schema_version: number
   state: 'fresh' | 'stale' | 'empty' | string
   record_count: number
+  source_count?: number
+  category_counts?: Record<string, number>
   newest_item_at?: string
   oldest_item_at?: string
   max_content_age_min: number
@@ -207,6 +214,7 @@ export interface MarketDocument {
   sentiment?: string
   sentiment_score?: number
   influence_score?: number
+  metadata?: Record<string, any>
 }
 
 export interface CrawlerStatus {

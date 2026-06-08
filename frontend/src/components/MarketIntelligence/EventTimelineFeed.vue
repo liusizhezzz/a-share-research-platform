@@ -12,7 +12,7 @@
       <span class="feed-body">
         <span class="feed-title">{{ item.title }}</span>
         <span class="feed-meta">
-          {{ item.location_name || '全球' }} · {{ item.source || '未知来源' }} · 严重度 {{ Math.round(item.severity || 0) }}
+          {{ item.location_name || '全球' }} · {{ item.intel_lens || item.source_category || item.source || '未知来源' }} · 严重度 {{ Math.round(item.severity || 0) }}
         </span>
       </span>
     </button>
@@ -104,4 +104,3 @@ const formatTime = (value?: string) => {
   white-space: nowrap;
 }
 </style>
-

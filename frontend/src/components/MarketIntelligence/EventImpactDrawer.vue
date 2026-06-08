@@ -10,6 +10,9 @@
       <div class="event-title">{{ event.title }}</div>
       <div class="event-meta">
         <el-tag :type="severityTag(event.severity)">严重度 {{ Math.round(event.severity || 0) }}</el-tag>
+        <el-tag v-if="event.intel_lens || event.source_category" type="success" effect="plain">
+          {{ event.intel_lens || event.source_category }}
+        </el-tag>
         <span>{{ event.location_name || event.country || '全球' }}</span>
         <span>{{ formatTime(event.published_at) }}</span>
       </div>

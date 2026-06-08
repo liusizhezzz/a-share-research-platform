@@ -670,6 +670,7 @@ class InvestmentDailyService:
         for item in market_news + stock_news:
             text = f"{item.get('title', '')} {item.get('content', '')}"
             themes = self._match_themes(text)
+            themes = list(dict.fromkeys(themes + [theme for theme in (item.get("keywords") or []) if theme in THEME_KEYWORDS]))
             symbol = _normalize_code(item.get("symbol"))
             normalized_title = re.sub(r"\s+", "", str(item.get("title") or ""))[:24]
             basis = f"{symbol or (themes[0] if themes else '')}:{normalized_title}"
@@ -1112,7 +1113,8 @@ class InvestmentDailyService:
             sentiment_total = 0.0
             for item in news_items:
                 text = f"{item.get('title', '')} {item.get('content', '')}"
-                if self._matches_keywords(text, keywords):
+                item_themes = set(theme for theme in (item.get("keywords") or []) if theme in THEME_KEYWORDS)
+                if theme in item_themes or self._matches_keywords(text, keywords):
                     matched.append(item)
                     sentiment_total += _safe_float(item.get("sentiment_score"))
             if not matched:

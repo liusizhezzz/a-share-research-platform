@@ -170,7 +170,283 @@ SOURCE_WEIGHTS = {
     "每日经济新闻": 1.08,
     "东方财富": 1.0,
     "eastmoney_guba": 0.72,
+    "SEC Latest Filings": 1.16,
+    "Federal Reserve Press Releases": 1.22,
+    "CFTC COT": 1.14,
+    "CISA KEV JSON": 1.18,
+    "NVD CVE API": 1.12,
+    "CSIS": 1.18,
+    "Atlantic Council": 1.12,
+    "Brookings": 1.1,
+    "Defense News": 1.12,
+    "USNI News": 1.12,
+    "Bellingcat": 1.1,
+    "gCaptain": 1.1,
+    "CNBC Markets": 1.08,
+    "BBC World": 1.06,
+    "Al Jazeera": 1.06,
+    "GDELT DOC 2.1": 1.04,
+    "public_feed": 1.04,
+    "public_json": 1.08,
+    "public_html": 0.92,
 }
+
+PUBLIC_THEME_KEYWORDS: Dict[str, List[str]] = {
+    "AI算力": ["artificial intelligence", "generative ai", "data center", "datacenter", "gpu", "nvidia", "cloud", "compute", "hyperscaler", "large language model"],
+    "半导体": ["semiconductor", "chip", "foundry", "wafer", "lithography", "tsmc", "eda", "memory", "advanced packaging"],
+    "机器人": ["robot", "robotics", "humanoid", "automation", "autonomous", "drone", "uav"],
+    "新能源": ["battery", "lithium", "solar", "renewable", "ev", "electric vehicle", "power grid", "storage"],
+    "军工安全": ["defense", "military", "missile", "navy", "sanction", "security", "cyber", "vulnerability", "ransomware", "exploit"],
+    "医药医疗": ["health", "disease", "outbreak", "vaccine", "pharma", "who", "cdc", "hospital"],
+    "消费出海": ["trade", "tariff", "export", "shipping", "freight", "consumer", "e-commerce", "supply chain"],
+    "资源通胀": ["oil", "crude", "lng", "gas", "copper", "gold", "commodity", "freight", "grain", "wheat", "food"],
+    "金融地产": ["federal reserve", "fed", "treasury", "cpi", "inflation", "rate", "yield", "dollar", "liquidity", "bitcoin", "stablecoin", "bank"],
+}
+
+PUBLIC_INTEL_CATEGORY_PROFILES: Dict[str, Dict[str, Any]] = {
+    "official_finance": {
+        "label": "海外官方金融披露",
+        "event_type": "macro",
+        "lat": 38.9,
+        "lon": -77.03,
+        "region": "北美",
+        "country": "美国",
+        "themes": ["金融地产", "AI算力"],
+        "affected_assets": ["美元", "美债", "全球风险偏好", "成长股估值"],
+        "transmission_channels": ["流动性", "估值折现率", "外资风险偏好"],
+        "severity_bias": 8,
+    },
+    "macro": {
+        "label": "全球宏观政策",
+        "event_type": "macro",
+        "lat": 38.9,
+        "lon": -77.03,
+        "region": "全球宏观",
+        "country": "美国/全球",
+        "themes": ["金融地产", "资源通胀", "消费出海"],
+        "affected_assets": ["美元", "美债", "黄金", "人民币汇率"],
+        "transmission_channels": ["利率", "汇率", "通胀预期", "外需"],
+        "severity_bias": 10,
+    },
+    "global_macro": {
+        "label": "全球宏观新闻",
+        "event_type": "macro",
+        "lat": 38.9,
+        "lon": -77.03,
+        "region": "全球宏观",
+        "country": "美国/全球",
+        "themes": ["金融地产", "资源通胀", "消费出海"],
+        "affected_assets": ["美元", "美债", "黄金", "人民币汇率"],
+        "transmission_channels": ["利率", "汇率", "通胀预期", "外需"],
+        "severity_bias": 8,
+    },
+    "markets_news": {
+        "label": "海外市场新闻",
+        "event_type": "macro",
+        "lat": 40.71,
+        "lon": -74.0,
+        "region": "全球市场",
+        "country": "美国/全球",
+        "themes": ["金融地产", "资源通胀", "AI算力"],
+        "affected_assets": ["美股", "美元", "商品", "风险偏好"],
+        "transmission_channels": ["跨市场情绪", "资金风险偏好", "估值联动"],
+        "severity_bias": 7,
+    },
+    "world_news": {
+        "label": "全球新闻事件",
+        "event_type": "geopolitical",
+        "lat": 30.0,
+        "lon": 20.0,
+        "region": "全球",
+        "country": "多区域",
+        "themes": ["军工安全", "资源通胀", "消费出海"],
+        "affected_assets": ["原油", "黄金", "航运", "出口链"],
+        "transmission_channels": ["地缘风险", "贸易预期", "避险情绪"],
+        "severity_bias": 11,
+    },
+    "global_news": {
+        "label": "GDELT 全球事件",
+        "event_type": "geopolitical",
+        "lat": 30.0,
+        "lon": 20.0,
+        "region": "全球",
+        "country": "多区域",
+        "themes": ["军工安全", "资源通胀", "消费出海"],
+        "affected_assets": ["原油", "黄金", "航运", "出口链"],
+        "transmission_channels": ["地缘风险", "跨区域舆情扩散", "风险偏好"],
+        "severity_bias": 13,
+    },
+    "think_tank": {
+        "label": "智库战略风险",
+        "event_type": "geopolitical",
+        "lat": 38.9,
+        "lon": -77.03,
+        "region": "全球战略",
+        "country": "美国/全球",
+        "themes": ["军工安全", "半导体", "消费出海"],
+        "affected_assets": ["贸易政策", "制裁链", "国防安全"],
+        "transmission_channels": ["政策预期", "产业限制", "供应链重构"],
+        "severity_bias": 12,
+    },
+    "defense": {
+        "label": "军事活动与国防订单",
+        "event_type": "geopolitical",
+        "lat": 38.9,
+        "lon": -77.03,
+        "region": "全球防务",
+        "country": "美国/全球",
+        "themes": ["军工安全", "半导体", "AI算力"],
+        "affected_assets": ["军工订单", "卫星链", "网络安全", "无人系统"],
+        "transmission_channels": ["国防预算", "装备需求", "安全溢价"],
+        "severity_bias": 15,
+    },
+    "osint": {
+        "label": "OSINT 开源情报",
+        "event_type": "geopolitical",
+        "lat": 50.45,
+        "lon": 30.52,
+        "region": "全球冲突区",
+        "country": "多区域",
+        "themes": ["军工安全", "资源通胀"],
+        "affected_assets": ["冲突风险", "能源", "黄金"],
+        "transmission_channels": ["战况变化", "制裁预期", "避险交易"],
+        "severity_bias": 14,
+    },
+    "maritime": {
+        "label": "航运与关键通道",
+        "event_type": "commodity",
+        "lat": 1.29,
+        "lon": 103.85,
+        "region": "全球航运",
+        "country": "新加坡/关键航道",
+        "themes": ["资源通胀", "消费出海", "军工安全"],
+        "affected_assets": ["集运", "油运", "运价", "出口交付"],
+        "transmission_channels": ["航运价格", "保险成本", "交付周期"],
+        "severity_bias": 14,
+    },
+    "tech": {
+        "label": "科技供应链",
+        "event_type": "tech_supply_chain",
+        "lat": 37.39,
+        "lon": -122.08,
+        "region": "北美科技",
+        "country": "美国/全球",
+        "themes": ["AI算力", "半导体", "机器人"],
+        "affected_assets": ["云资本开支", "GPU/ASIC", "软件生态"],
+        "transmission_channels": ["产业景气", "订单预期", "国产替代"],
+        "severity_bias": 7,
+    },
+    "research": {
+        "label": "前沿技术研究",
+        "event_type": "tech_supply_chain",
+        "lat": 37.39,
+        "lon": -122.08,
+        "region": "全球科研",
+        "country": "全球",
+        "themes": ["AI算力", "半导体", "机器人"],
+        "affected_assets": ["AI 模型", "算力需求", "芯片生态"],
+        "transmission_channels": ["技术路线", "资本开支", "应用扩散"],
+        "severity_bias": 6,
+    },
+    "startups": {
+        "label": "创业与应用扩散",
+        "event_type": "tech_supply_chain",
+        "lat": 37.78,
+        "lon": -122.42,
+        "region": "北美科技",
+        "country": "美国/全球",
+        "themes": ["AI算力", "机器人", "消费出海"],
+        "affected_assets": ["AI 应用", "SaaS", "算力需求"],
+        "transmission_channels": ["应用渗透率", "云需求", "风险投资"],
+        "severity_bias": 5,
+    },
+    "cyber": {
+        "label": "网络威胁",
+        "event_type": "cyber",
+        "lat": 38.9,
+        "lon": -77.03,
+        "region": "全球网络空间",
+        "country": "美国/全球",
+        "themes": ["军工安全", "AI算力", "半导体"],
+        "affected_assets": ["网络安全", "数据安全", "关键基础设施"],
+        "transmission_channels": ["漏洞利用", "勒索攻击", "合规投入", "安全订单"],
+        "severity_bias": 16,
+    },
+    "crypto": {
+        "label": "加密与链上流动性",
+        "event_type": "crypto_financial",
+        "lat": 40.71,
+        "lon": -74.0,
+        "region": "全球金融",
+        "country": "全球",
+        "themes": ["金融地产", "AI算力"],
+        "affected_assets": ["比特币", "稳定币", "美元流动性", "风险资产"],
+        "transmission_channels": ["风险偏好", "美元流动性", "金融科技"],
+        "severity_bias": 6,
+    },
+    "positioning": {
+        "label": "期货持仓",
+        "event_type": "commodity",
+        "lat": 41.88,
+        "lon": -87.63,
+        "region": "全球商品",
+        "country": "美国/全球",
+        "themes": ["资源通胀", "金融地产"],
+        "affected_assets": ["商品期货", "美元", "通胀预期"],
+        "transmission_channels": ["投机持仓", "价格趋势", "套保需求"],
+        "severity_bias": 7,
+    },
+    "health": {
+        "label": "公共卫生",
+        "event_type": "health",
+        "lat": 46.2,
+        "lon": 6.14,
+        "region": "全球卫生",
+        "country": "瑞士/全球",
+        "themes": ["医药医疗", "消费出海"],
+        "affected_assets": ["医药", "疫苗", "跨境出行", "消费"],
+        "transmission_channels": ["公共卫生", "医疗需求", "出行限制"],
+        "severity_bias": 11,
+    },
+    "food": {
+        "label": "粮食与农业",
+        "event_type": "food_security",
+        "lat": 41.9,
+        "lon": 12.5,
+        "region": "全球农业",
+        "country": "意大利/全球",
+        "themes": ["资源通胀", "消费出海"],
+        "affected_assets": ["粮食", "农产品", "食品价格"],
+        "transmission_channels": ["农产品价格", "食品成本", "贸易流"],
+        "severity_bias": 10,
+    },
+    "china_finance": {
+        "label": "中国财经公共源",
+        "event_type": "macro",
+        "lat": 39.9,
+        "lon": 116.4,
+        "region": "中国",
+        "country": "中国",
+        "themes": list(THEME_KEYWORDS.keys()),
+        "affected_assets": ["A股", "人民币", "政策预期"],
+        "transmission_channels": ["政策", "资金风险偏好", "行业景气"],
+        "severity_bias": 7,
+    },
+}
+
+LOCATION_HINTS: List[Dict[str, Any]] = [
+    {"keywords": ["China", "Chinese", "Beijing", "中国", "北京"], "lat": 39.9, "lon": 116.4, "region": "中国", "country": "中国", "name": "中国/北京"},
+    {"keywords": ["United States", "U.S.", "US ", "America", "Washington", "美国"], "lat": 38.9, "lon": -77.03, "region": "北美", "country": "美国", "name": "美国/华盛顿"},
+    {"keywords": ["Europe", "European", "EU ", "Brussels", "欧盟", "欧洲"], "lat": 50.85, "lon": 4.35, "region": "欧洲", "country": "欧盟", "name": "欧洲/布鲁塞尔"},
+    {"keywords": ["Middle East", "Gulf", "Iran", "Israel", "中东", "伊朗", "以色列"], "lat": 31.77, "lon": 35.21, "region": "中东", "country": "中东", "name": "中东局势"},
+    {"keywords": ["Russia", "Ukraine", "Black Sea", "俄罗斯", "乌克兰", "黑海"], "lat": 50.45, "lon": 30.52, "region": "欧洲", "country": "乌克兰/俄罗斯", "name": "俄乌/黑海"},
+    {"keywords": ["Japan", "Tokyo", "日本", "东京"], "lat": 35.68, "lon": 139.76, "region": "亚洲", "country": "日本", "name": "日本/东京"},
+    {"keywords": ["Korea", "Seoul", "韩国", "首尔"], "lat": 37.56, "lon": 126.97, "region": "亚洲", "country": "韩国", "name": "韩国/首尔"},
+    {"keywords": ["Taiwan", "Taiwan Strait", "台湾", "台海"], "lat": 24.0, "lon": 121.0, "region": "亚太", "country": "中国台湾", "name": "台海/西太平洋"},
+    {"keywords": ["Singapore", "Malacca", "Singapore Strait", "新加坡", "马六甲"], "lat": 1.29, "lon": 103.85, "region": "东南亚", "country": "新加坡/马六甲", "name": "马六甲/新加坡"},
+    {"keywords": ["Red Sea", "Suez", "红海", "苏伊士"], "lat": 20.3, "lon": 38.5, "region": "中东/非洲", "country": "红海航道", "name": "红海/苏伊士"},
+    {"keywords": ["Panama", "巴拿马"], "lat": 9.08, "lon": -79.68, "region": "拉美", "country": "巴拿马", "name": "巴拿马运河"},
+]
 
 THEME_INDUSTRY_HINTS: Dict[str, List[str]] = {
     "AI算力": ["通信", "光模块", "光器件", "光通信", "数据中心", "服务器", "云计算", "算力", "液冷", "PCB", "高速连接", "软件", "计算机", "互联网"],
@@ -221,9 +497,33 @@ WORLD_MONITOR_LAYERS: List[Dict[str, Any]] = [
         "id": "tech_supply_chain",
         "label": "科技供应链",
         "description": "AI、半导体、机器人、新能源和出口限制",
-        "event_types": ["global_news"],
+        "event_types": ["tech_supply_chain"],
         "themes": ["AI算力", "半导体", "机器人", "新能源"],
         "color": "#8b7cf6",
+    },
+    {
+        "id": "cyber_threats",
+        "label": "网络威胁",
+        "description": "漏洞、勒索软件、关键基础设施攻击和安全合规投入",
+        "event_types": ["cyber"],
+        "themes": ["军工安全", "AI算力", "半导体"],
+        "color": "#f45d96",
+    },
+    {
+        "id": "crypto_fintech",
+        "label": "金融科技/加密",
+        "description": "稳定币、加密资产、链上流动性和风险偏好",
+        "event_types": ["crypto_financial"],
+        "themes": ["金融地产", "AI算力"],
+        "color": "#d6b44c",
+    },
+    {
+        "id": "health_food",
+        "label": "公共卫生/粮食",
+        "description": "公共卫生、疫情、粮食供应和农产品价格扰动",
+        "event_types": ["health", "food_security"],
+        "themes": ["医药医疗", "资源通胀", "消费出海"],
+        "color": "#45c27a",
     },
     {
         "id": "natural_hazard",
@@ -314,6 +614,10 @@ STRATEGIC_CORRIDORS: List[Dict[str, Any]] = [
 
 SOURCE_ENVELOPE_GROUPS: List[Dict[str, Any]] = [
     {"id": "market_news", "label": "市场新闻", "document_types": ["news", "stock_news"], "max_age_minutes": 15},
+    {"id": "public_world_news", "label": "全球新闻/RSS", "document_types": ["news"], "public_categories": ["world_news", "global_news", "global_macro", "markets_news"], "max_age_minutes": 15},
+    {"id": "policy_think_tank", "label": "政策/智库", "document_types": ["news"], "public_categories": ["official_finance", "macro", "think_tank", "defense", "osint"], "max_age_minutes": 60},
+    {"id": "cyber_tech_intel", "label": "网络/科技情报", "document_types": ["news"], "public_categories": ["cyber", "tech", "research", "startups"], "max_age_minutes": 60},
+    {"id": "supply_chain_assets", "label": "供应链/资产", "document_types": ["news"], "public_categories": ["maritime", "positioning", "crypto", "health", "food", "china_finance"], "max_age_minutes": 60},
     {"id": "social_comments", "label": "股吧评论", "document_types": ["social_comment"], "max_age_minutes": 15},
     {"id": "announcements", "label": "公告元数据", "document_types": ["announcement"], "max_age_minutes": 180},
     {"id": "research_reports", "label": "研报元数据", "document_types": ["research_report"], "max_age_minutes": 720},
@@ -682,7 +986,7 @@ class MarketIntelligenceService:
         source_coverage = self._source_coverage(crawler_statuses)
 
         summary = self._build_dashboard_summary(theme_nodes, stock_opportunities, events, risk_warnings)
-        markdown_report = self._render_dashboard_markdown(summary, theme_nodes, stock_opportunities, event_chains, risk_warnings)
+        markdown_report = self._render_dashboard_markdown(summary, theme_nodes, stock_opportunities, event_chains, risk_warnings, source_envelopes)
 
         return _jsonable({
             "status": "ready" if documents or events else "partial",
@@ -825,10 +1129,13 @@ class MarketIntelligenceService:
             return None
         signal = await self.get_stock_signal(clean) or {"code": clean}
         docs = await self.get_documents(hours=hours, code=clean, limit=160)
+        public_context = await self._stock_public_context(signal, hours=hours, limit=80)
+        docs = self._dedupe_documents([*docs, *public_context])
         comments = await self.get_stock_comments(clean, hours=hours, limit=120)
         exposure = await self._get_company_exposure(clean, signal, docs)
         clusters = self._build_event_clusters(docs, [])
         signal["documents"] = docs[:80]
+        signal["public_intel_context"] = public_context[:40]
         signal["event_clusters"] = clusters[:12]
         signal["comments"] = comments.get("comments", [])
         signal["sentiment_summary"] = comments.get("sentiment_summary", {})
@@ -868,6 +1175,32 @@ class MarketIntelligenceService:
                 "formula": "avg_sentiment=mean(sentiment_score); disagreement=stddev(sentiment_score)",
             },
         })
+
+    async def _stock_public_context(self, signal: Dict[str, Any], *, hours: int, limit: int) -> List[Dict[str, Any]]:
+        themes = list(dict.fromkeys(
+            [theme for theme in (signal.get("matched_themes") or []) if theme]
+            + ([signal.get("theme")] if signal.get("theme") else [])
+        ))
+        if not themes:
+            return []
+        cutoff = _utc_now() - timedelta(hours=hours)
+        docs = await self.db.market_documents.find({
+            "published_at": {"$gte": cutoff},
+            "data_source": {"$regex": "^public_"},
+            "themes": {"$in": themes},
+        }).sort([("influence_score", -1), ("published_at", -1)]).limit(limit).to_list(length=limit)
+        return _jsonable(docs)
+
+    def _dedupe_documents(self, docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen = set()
+        result = []
+        for doc in docs:
+            key = doc.get("doc_key") or doc.get("url") or doc.get("title")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            result.append(doc)
+        return result
 
     async def get_methodology(self) -> Dict[str, Any]:
         router = get_llm_task_router()
@@ -1319,18 +1652,24 @@ class MarketIntelligenceService:
     def _event_analysis_prompt(self, event: Dict[str, Any], docs: List[Dict[str, Any]]) -> str:
         evidence_lines = []
         for doc in docs[:18]:
+            metadata = doc.get("metadata") or {}
+            lens = metadata.get("intel_lens") or metadata.get("public_source_category") or doc.get("document_type")
             evidence_lines.append(
-                f"- [{doc.get('source')}] {doc.get('title')} ({_jsonable(doc.get('published_at'))})"
+                f"- [{doc.get('source')} / {lens}] {doc.get('title')} ({_jsonable(doc.get('published_at'))})"
             )
+        category = event.get("source_category") or "market"
+        lens = event.get("intel_lens") or "市场证据"
         return (
             f"事件: {event.get('title')}\n"
             f"地点: {event.get('location_name') or event.get('region')}\n"
+            f"情报类别: {category} / {lens}\n"
             f"严重度: {event.get('severity')}\n"
             f"影响资产: {', '.join(event.get('affected_assets') or [])}\n"
             f"传导渠道: {', '.join(event.get('transmission_channels') or [])}\n"
             f"A股主题: {', '.join(event.get('mapped_themes') or [])}\n\n"
             "证据:\n" + "\n".join(evidence_lines) + "\n\n"
-            "请按以下结构输出：1事件判断；2宏观变量；3产业链传导；4受益/受损行业；5A股个股观察；6是否price in；7交易确认条件；8失效条件。"
+            "请按以下结构输出：1事件判断；2宏观变量/资产变量；3产业链和供应链传导；"
+            "4受益/受损行业；5A股主题和个股观察；6证据强度与缺口；7是否price in；8交易确认条件；9失效条件。"
         )
 
     def _fallback_event_analysis(self, event: Dict[str, Any], docs: List[Dict[str, Any]]) -> str:
@@ -1504,6 +1843,11 @@ class MarketIntelligenceService:
                 continue
             text = f"{title} {content}"
             symbol = _normalize_code(item.get("symbol"))
+            public_category = str(item.get("category") or item.get("source_category") or "").strip()
+            public_profile = self._public_profile_for_category(public_category)
+            matched_themes = self._match_themes(text)
+            if public_profile:
+                matched_themes = list(dict.fromkeys(matched_themes + list(public_profile.get("themes") or [])))
             docs.append(self._document(
                 document_type=doc_type,
                 title=title,
@@ -1512,12 +1856,17 @@ class MarketIntelligenceService:
                 url=str(item.get("url") or ""),
                 published_at=published,
                 symbols=[symbol] if symbol else [],
-                themes=self._match_themes(text),
+                themes=matched_themes,
                 sentiment_score=_safe_float(item.get("sentiment_score"), _sentiment_score(text)),
                 data_source=str(item.get("data_source") or "news"),
                 metadata={
                     **{k: _jsonable(v) for k, v in item.items() if k not in {"title", "content", "summary"}},
                     "published_at_quality": published_quality,
+                    "public_source": bool(public_profile),
+                    "public_source_category": public_category or None,
+                    "intel_lens": public_profile.get("label") if public_profile else None,
+                    "affected_assets": list(public_profile.get("affected_assets") or []) if public_profile else [],
+                    "transmission_channels": list(public_profile.get("transmission_channels") or []) if public_profile else [],
                 },
             ))
         return docs
@@ -1622,12 +1971,18 @@ class MarketIntelligenceService:
         inferred = self._infer_published_at_from_url_or_title(url=url, title=title)
         now = now_tz().replace(tzinfo=None)
         if inferred and (not explicit or (abs((explicit - now).total_seconds()) < 600 and abs((explicit - inferred).total_seconds()) > 6 * 3600)):
-            return inferred, "estimated_from_url_or_title"
+            return self._clamp_future_published_at(inferred, "estimated_from_url_or_title")
         if explicit:
-            return explicit, "source"
+            return self._clamp_future_published_at(explicit, "source")
         if inferred:
-            return inferred, "estimated_from_url_or_title"
+            return self._clamp_future_published_at(inferred, "estimated_from_url_or_title")
         return now, "ingest_fallback"
+
+    def _clamp_future_published_at(self, published_at: datetime, quality: str) -> Tuple[datetime, str]:
+        now = now_tz().replace(tzinfo=None)
+        if published_at > now + timedelta(minutes=30):
+            return now, f"{quality}_future_clamped"
+        return published_at, quality
 
     def _infer_published_at_from_url_or_title(self, *, url: str, title: str) -> Optional[datetime]:
         text = f"{url} {title}"
@@ -1671,7 +2026,10 @@ class MarketIntelligenceService:
         stable_identity = url.strip() or f"{document_type}|{source}|{title}|{','.join(sorted(symbols))}"
         doc_key = hashlib.sha1(stable_identity.encode("utf-8")).hexdigest()
         source_weight = max(SOURCE_WEIGHTS.get(source, SOURCE_WEIGHTS.get(data_source, 1.0)), 0.5)
-        influence = min(100.0, 45 + len(content) / 25 + len(themes) * 6 + source_weight * 8)
+        public_category = str((metadata or {}).get("public_source_category") or "")
+        public_profile = self._public_profile_for_category(public_category)
+        profile_bias = _safe_float(public_profile.get("severity_bias")) * 0.45 if public_profile else 0.0
+        influence = min(100.0, 45 + len(content) / 25 + len(themes) * 6 + source_weight * 8 + profile_bias)
         ingested_at = _utc_now()
         return {
             "doc_key": doc_key,
@@ -1736,9 +2094,11 @@ class MarketIntelligenceService:
             if doc.get("published_at") < window_start:
                 continue
             text = f"{doc.get('title', '')} {doc.get('content', '')}"
-            if not self._looks_global_event(text):
+            public_profile = self._public_profile_for_doc(doc)
+            if not self._looks_global_event(text) and not public_profile:
                 continue
-            rule = self._geo_rule_for_text(text)
+            public_rule = self._public_rule_for_doc(doc, text, public_profile)
+            rule = public_rule or self._geo_rule_for_text(text)
             if not rule:
                 continue
             severity = self._event_severity(text, doc, rule)
@@ -1746,9 +2106,10 @@ class MarketIntelligenceService:
                 f"{doc.get('doc_key')}|{rule['name']}".encode("utf-8")
             ).hexdigest()[:24]
             event_themes = sorted(set(rule.get("themes", []) + doc.get("themes", [])))
+            metadata = doc.get("metadata") or {}
             event = {
                 "event_id": event_id,
-                "event_type": self._event_type(text),
+                "event_type": rule.get("event_type") or self._event_type(text),
                 "title": doc.get("title"),
                 "summary": doc.get("summary") or doc.get("content", "")[:240],
                 "source": doc.get("source"),
@@ -1768,10 +2129,64 @@ class MarketIntelligenceService:
                 "mapped_stocks": doc.get("symbols", []),
                 "map_layers": self._event_layers_for_event(text, doc, rule),
                 "document_key": doc.get("doc_key"),
+                "source_category": metadata.get("public_source_category"),
+                "intel_lens": metadata.get("intel_lens"),
+                "evidence_kind": "public_intel" if public_profile else "market_evidence",
             }
             events.append(event)
         events.sort(key=lambda item: (_safe_float(item.get("severity")), _parse_dt(item.get("published_at"))), reverse=True)
         return events
+
+    def _public_profile_for_category(self, category: Any) -> Optional[Dict[str, Any]]:
+        key = str(category or "").strip()
+        if not key:
+            return None
+        return PUBLIC_INTEL_CATEGORY_PROFILES.get(key)
+
+    def _public_profile_for_doc(self, doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        metadata = doc.get("metadata") or {}
+        category = metadata.get("public_source_category") or metadata.get("category")
+        if not category and str(doc.get("data_source") or "").startswith("public_"):
+            category = metadata.get("source_category")
+        return self._public_profile_for_category(category)
+
+    def _public_rule_for_doc(
+        self,
+        doc: Dict[str, Any],
+        text: str,
+        profile: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        if not profile:
+            return None
+        hint = self._location_hint_for_text(text)
+        name = hint.get("name") if hint else profile.get("label")
+        detected_event_type = self._event_type(text)
+        event_type = profile.get("event_type") or detected_event_type
+        if detected_event_type != "global_news" and event_type in {"macro", "geopolitical", "global_news"}:
+            event_type = detected_event_type
+        rule = {
+            "keywords": [],
+            "name": f"{profile.get('label')} · {name}",
+            "lat": hint.get("lat") if hint else profile.get("lat"),
+            "lon": hint.get("lon") if hint else profile.get("lon"),
+            "region": hint.get("region") if hint else profile.get("region"),
+            "country": hint.get("country") if hint else profile.get("country"),
+            "affected_assets": profile.get("affected_assets", []),
+            "transmission_channels": profile.get("transmission_channels", []),
+            "themes": profile.get("themes", []),
+            "severity_bias": profile.get("severity_bias", 0),
+            "event_type": event_type,
+        }
+        if rule.get("lat") is None or rule.get("lon") is None:
+            return None
+        return rule
+
+    def _location_hint_for_text(self, text: str) -> Optional[Dict[str, Any]]:
+        normalized = text or ""
+        for hint in LOCATION_HINTS:
+            if any(keyword and keyword.lower() in normalized.lower() for keyword in hint.get("keywords", [])):
+                return hint
+        return None
 
     def _looks_global_event(self, text: str) -> bool:
         return any(word in text for word in GLOBAL_KEYWORDS) or any(
@@ -1785,6 +2200,14 @@ class MarketIntelligenceService:
         return None
 
     def _event_type(self, text: str) -> str:
+        if any(word.lower() in text.lower() for word in ["ransomware", "cve", "vulnerability", "exploit", "cyber", "勒索", "漏洞", "网络攻击"]):
+            return "cyber"
+        if any(word.lower() in text.lower() for word in ["bitcoin", "stablecoin", "crypto", "defi", "加密", "稳定币", "比特币"]):
+            return "crypto_financial"
+        if any(word.lower() in text.lower() for word in ["ai", "artificial intelligence", "semiconductor", "chip", "startup", "launches"]):
+            return "tech_supply_chain"
+        if any(word.lower() in text.lower() for word in ["who", "cdc", "disease", "outbreak", "health", "疫情", "公共卫生"]):
+            return "health"
         if any(word in text for word in ["地震", "火灾", "台风", "洪水", "灾害"]):
             return "natural_disaster"
         if any(word in text for word in ["美联储", "央行", "CPI", "美元", "利率", "汇率"]):
@@ -1802,7 +2225,7 @@ class MarketIntelligenceService:
         return round(max(0.0, min(100.0, score)), 2)
 
     def _event_layers_for_event(self, text: str, doc: Dict[str, Any], rule: Dict[str, Any]) -> List[str]:
-        event_type = self._event_type(text)
+        event_type = rule.get("event_type") or self._event_type(text)
         mapped_themes = set(rule.get("themes", []) + doc.get("themes", []))
         layer_ids: List[str] = []
         for layer in WORLD_MONITOR_LAYERS:
@@ -1811,8 +2234,14 @@ class MarketIntelligenceService:
             if layer["id"] == "a_share_mapping" and (mapped_themes or doc.get("symbols")):
                 layer_ids.append(layer["id"])
                 continue
-            if event_type in event_types or mapped_themes.intersection(themes):
+            if layer["id"] == "chokepoints":
+                corridor_text = f"{text} {rule.get('name', '')} {rule.get('region', '')}"
+                if any(self._event_mentions_corridor({"title": corridor_text}, corridor) for corridor in STRATEGIC_CORRIDORS):
+                    layer_ids.append(layer["id"])
+                continue
+            if event_type in event_types:
                 layer_ids.append(layer["id"])
+                continue
         return sorted(set(layer_ids))
 
     async def _recompute_signals(self, *, window_hours: int) -> Dict[str, Any]:
@@ -1848,8 +2277,6 @@ class MarketIntelligenceService:
         return {"theme_heatmap_nodes": theme_nodes, "stock_opportunities": stock_opportunities}
 
     def _ensure_event_layers(self, event: Dict[str, Any]) -> Dict[str, Any]:
-        if event.get("map_layers"):
-            return event
         enriched = dict(event)
         event_type = str(enriched.get("event_type") or "")
         mapped_themes = set(enriched.get("mapped_themes") or [])
@@ -1858,10 +2285,13 @@ class MarketIntelligenceService:
             if layer["id"] == "a_share_mapping" and (mapped_themes or enriched.get("mapped_stocks")):
                 layer_ids.append(layer["id"])
                 continue
-            if event_type in set(layer.get("event_types") or []) or mapped_themes.intersection(set(layer.get("themes") or [])):
+            if layer["id"] == "chokepoints":
+                if self._matches_corridor(enriched):
+                    layer_ids.append(layer["id"])
+                continue
+            if event_type in set(layer.get("event_types") or []):
                 layer_ids.append(layer["id"])
-        if self._matches_corridor(enriched):
-            layer_ids.append("chokepoints")
+                continue
         enriched["map_layers"] = sorted(set(layer_ids))
         return enriched
 
@@ -1909,6 +2339,8 @@ class MarketIntelligenceService:
                 "layers": event.get("map_layers") or [],
                 "mapped_themes": event.get("mapped_themes") or [],
                 "affected_assets": event.get("affected_assets") or [],
+                "source_category": event.get("source_category"),
+                "intel_lens": event.get("intel_lens"),
             })
         return feed
 
@@ -1953,12 +2385,21 @@ class MarketIntelligenceService:
                 records = events
             else:
                 doc_types = set(group.get("document_types") or [])
-                records = [doc for doc in documents if doc.get("document_type") in doc_types]
+                public_categories = set(group.get("public_categories") or [])
+                records = []
+                for doc in documents:
+                    if doc.get("document_type") not in doc_types:
+                        continue
+                    if public_categories:
+                        category = (doc.get("metadata") or {}).get("public_source_category")
+                        if category not in public_categories:
+                            continue
+                    records.append(doc)
 
             publish_times = [_parse_dt(record.get("published_at")) for record in records if record.get("published_at")]
             newest = max(publish_times) if publish_times else None
             oldest = min(publish_times) if publish_times else None
-            age_minutes = int((now - newest).total_seconds() // 60) if newest else None
+            age_minutes = max(0, int((now - newest).total_seconds() // 60)) if newest else None
             max_age = int(group.get("max_age_minutes") or 30)
             if not records:
                 state = "empty"
@@ -1972,6 +2413,11 @@ class MarketIntelligenceService:
                 "schema_version": 1,
                 "state": state,
                 "record_count": len(records),
+                "source_count": len({
+                    str(record.get("source") or record.get("data_source") or "unknown")
+                    for record in records
+                }),
+                "category_counts": self._source_category_counts(records),
                 "newest_item_at": newest,
                 "oldest_item_at": oldest,
                 "max_content_age_min": max_age,
@@ -1980,6 +2426,14 @@ class MarketIntelligenceService:
                 "source_version": "market-intelligence-v1",
             })
         return envelopes
+
+    def _source_category_counts(self, records: List[Dict[str, Any]]) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for record in records:
+            metadata = record.get("metadata") or {}
+            category = str(metadata.get("public_source_category") or record.get("event_type") or record.get("document_type") or "unknown")
+            counts[category] = counts.get(category, 0) + 1
+        return dict(sorted(counts.items(), key=lambda item: item[1], reverse=True)[:8])
 
     def _matches_corridor(self, event: Dict[str, Any]) -> bool:
         return any(self._event_mentions_corridor(event, corridor) for corridor in STRATEGIC_CORRIDORS)
@@ -2378,7 +2832,7 @@ class MarketIntelligenceService:
         )
         themes: List[str] = []
         for theme in active_theme_names:
-            keywords = list(THEME_KEYWORDS.get(theme, [])) + THEME_INDUSTRY_HINTS.get(theme, [])
+            keywords = list(THEME_KEYWORDS.get(theme, [])) + THEME_INDUSTRY_HINTS.get(theme, []) + PUBLIC_THEME_KEYWORDS.get(theme, [])
             if self._matches(text=text, keywords=keywords):
                 themes.append(theme)
         return list(dict.fromkeys(themes))
@@ -2566,7 +3020,15 @@ class MarketIntelligenceService:
             f"风险提示: {risks[0] if risks else '暂无'}。"
         )
 
-    def _render_dashboard_markdown(self, summary: str, themes: List[Dict[str, Any]], stocks: List[Dict[str, Any]], chains: List[Dict[str, Any]], risks: List[str]) -> str:
+    def _render_dashboard_markdown(
+        self,
+        summary: str,
+        themes: List[Dict[str, Any]],
+        stocks: List[Dict[str, Any]],
+        chains: List[Dict[str, Any]],
+        risks: List[str],
+        source_envelopes: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
         lines = [
             "# 市场情报报告",
             "",
@@ -2582,6 +3044,17 @@ class MarketIntelligenceService:
         lines.extend(["", "## 全球事件传导"])
         for chain in chains[:4]:
             lines.append(f"- {chain.get('location_name')}: {chain.get('event_title')} -> {chain.get('steps', [{}])[3].get('value', '')}")
+        if source_envelopes:
+            lines.extend(["", "## 公共情报覆盖"])
+            for source in source_envelopes:
+                if not str(source.get("id") or "").startswith(("public_", "policy_", "cyber_", "supply_")):
+                    continue
+                category_counts = source.get("category_counts") or {}
+                categories = ", ".join(f"{key}:{value}" for key, value in list(category_counts.items())[:4])
+                lines.append(
+                    f"- {source.get('label')}: {source.get('state')}，{source.get('record_count')} 条，"
+                    f"{source.get('source_count', 0)} 个源；{categories or '暂无分类'}"
+                )
         lines.extend(["", "## 个股候选"])
         for stock in stocks[:8]:
             lines.append(f"- {stock.get('name')}({stock.get('code')}): {stock.get('theme')}，综合分 {stock.get('score')}，确认分 {stock.get('signal_strength')}")
@@ -2614,7 +3087,12 @@ class MarketIntelligenceService:
         }.get(report_type, "市场情报报告")
 
     def _match_themes(self, text: str) -> List[str]:
-        return [theme for theme, keywords in THEME_KEYWORDS.items() if self._matches(text=text, keywords=keywords)]
+        matched: List[str] = []
+        for theme, keywords in THEME_KEYWORDS.items():
+            expanded = list(keywords) + THEME_INDUSTRY_HINTS.get(theme, []) + PUBLIC_THEME_KEYWORDS.get(theme, [])
+            if self._matches(text=text, keywords=expanded):
+                matched.append(theme)
+        return matched
 
     def _matches(self, *, text: str, keywords: Iterable[str]) -> bool:
         return any(keyword and keyword.lower() in (text or "").lower() for keyword in keywords)

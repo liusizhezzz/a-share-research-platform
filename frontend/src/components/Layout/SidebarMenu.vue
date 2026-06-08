@@ -5,6 +5,7 @@
     :unique-opened="true"
     router
     class="sidebar-menu"
+    :class="{ 'sidebar-menu--research': isResearchWorkspace }"
   >
     <el-menu-item index="/dashboard">
       <el-icon><Odometer /></el-icon>
@@ -134,6 +135,9 @@ const route = useRoute()
 const appStore = useAppStore()
 
 const activeMenu = computed(() => route.path)
+const isResearchWorkspace = computed(() =>
+  route.path.startsWith('/market-intelligence') || route.path.startsWith('/investment-daily')
+)
 </script>
 
 <style lang="scss" scoped>
@@ -174,71 +178,69 @@ const activeMenu = computed(() => route.path)
   }
 }
 
-:global(.research-shell) {
-  .sidebar-menu {
-    --el-menu-bg-color: transparent;
-    --el-menu-text-color: #aebdd2;
-    --el-menu-hover-bg-color: rgba(67, 119, 198, 0.16);
-    --el-menu-active-color: #ffffff;
-    background: transparent;
+.sidebar-menu--research {
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: #aebdd2;
+  --el-menu-hover-bg-color: rgba(67, 119, 198, 0.16);
+  --el-menu-active-color: #ffffff;
+  background: transparent;
 
-    :deep(.el-menu-item),
-    :deep(.el-sub-menu__title) {
-      height: 42px;
-      line-height: 42px;
-      margin: 2px 8px;
-      border-radius: 8px;
-      color: #aebdd2;
-    }
+  :deep(.el-menu-item),
+  :deep(.el-sub-menu__title) {
+    height: 42px;
+    line-height: 42px;
+    margin: 2px 8px;
+    border-radius: 8px;
+    color: #aebdd2;
+  }
 
-    :deep(.el-menu-item:hover),
-    :deep(.el-sub-menu__title:hover) {
-      background: rgba(67, 119, 198, 0.16);
-      color: #e7f0ff;
-    }
+  :deep(.el-menu-item:hover),
+  :deep(.el-sub-menu__title:hover) {
+    background: rgba(67, 119, 198, 0.16);
+    color: #e7f0ff;
+  }
 
-    :deep(.el-menu-item.is-active) {
-      background: rgba(61, 130, 246, 0.2);
-      color: #ffffff;
-      box-shadow: inset 3px 0 0 #60a5fa;
-    }
+  :deep(.el-menu-item.is-active) {
+    background: rgba(61, 130, 246, 0.2);
+    color: #ffffff;
+    box-shadow: inset 3px 0 0 #60a5fa;
+  }
 
-    .menu-section-label {
-      color: #607087;
-      font-size: 11px;
-      text-transform: uppercase;
-    }
+  .menu-section-label {
+    color: #607087;
+    font-size: 11px;
+    text-transform: uppercase;
+  }
 
-    :deep(.priority-menu-item) {
-      position: relative;
-      margin: 5px 10px;
-      border-color: rgba(105, 147, 207, 0.26);
-      background:
-        linear-gradient(90deg, rgba(59, 130, 246, 0.2), rgba(20, 184, 166, 0.08) 74%);
-      color: #dceaff;
-      font-weight: 720;
+  :deep(.priority-menu-item) {
+    position: relative;
+    margin: 5px 10px;
+    border-color: rgba(105, 147, 207, 0.26);
+    background:
+      linear-gradient(90deg, rgba(59, 130, 246, 0.2), rgba(20, 184, 166, 0.08) 74%);
+    color: #dceaff;
+    font-weight: 720;
+  }
 
-      &::after {
-        content: "";
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: #37d4b5;
-        box-shadow: 0 0 12px rgba(55, 212, 181, 0.72);
-      }
+  :deep(.priority-menu-item)::after {
+    content: "";
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #37d4b5;
+    box-shadow: 0 0 12px rgba(55, 212, 181, 0.72);
+  }
 
-      &.is-active {
-        border-color: rgba(96, 165, 250, 0.62);
-        background:
-          linear-gradient(90deg, rgba(59, 130, 246, 0.34), rgba(20, 184, 166, 0.12) 78%);
-        box-shadow:
-          inset 3px 0 0 #37d4b5,
-          0 12px 26px rgba(5, 12, 22, 0.22);
-      }
-    }
+  :deep(.priority-menu-item.is-active) {
+    border-color: rgba(96, 165, 250, 0.62);
+    background:
+      linear-gradient(90deg, rgba(59, 130, 246, 0.34), rgba(20, 184, 166, 0.12) 78%);
+    box-shadow:
+      inset 3px 0 0 #37d4b5,
+      0 12px 26px rgba(5, 12, 22, 0.22);
   }
 }
 </style>

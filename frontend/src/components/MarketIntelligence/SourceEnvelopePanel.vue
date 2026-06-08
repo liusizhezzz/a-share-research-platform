@@ -14,6 +14,14 @@
       <div class="source-meta">
         {{ ageLabel(source.age_minutes) }} / 阈值 {{ source.max_content_age_min }}m
       </div>
+      <div v-if="source.source_count !== undefined" class="source-meta">
+        {{ source.source_count }} 个源
+      </div>
+      <div v-if="topCategories(source).length" class="source-categories">
+        <span v-for="item in topCategories(source)" :key="item[0]">
+          {{ item[0] }} {{ item[1] }}
+        </span>
+      </div>
     </div>
   </div>
 </template>
@@ -37,6 +45,11 @@ const ageLabel = (minutes?: number | null) => {
   if (minutes < 60) return `${minutes}m`
   return `${Math.floor(minutes / 60)}h${minutes % 60}m`
 }
+
+const topCategories = (source: SourceEnvelope) =>
+  Object.entries(source.category_counts || {})
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 3)
 </script>
 
 <style scoped lang="scss">
@@ -107,6 +120,25 @@ const ageLabel = (minutes?: number | null) => {
   white-space: nowrap;
 }
 
+.source-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+
+  span {
+    max-width: 100%;
+    padding: 2px 5px;
+    overflow: hidden;
+    border: 1px solid rgba(96, 165, 250, 0.22);
+    border-radius: 6px;
+    color: #a9c9ff;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 @media (max-width: 1180px) {
   .source-envelope-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -119,4 +151,3 @@ const ageLabel = (minutes?: number | null) => {
   }
 }
 </style>
-
