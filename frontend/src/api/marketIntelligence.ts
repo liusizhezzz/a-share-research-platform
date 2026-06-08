@@ -251,6 +251,25 @@ export const marketIntelligenceApi = {
     return ApiClient.get<StockOpportunity>(`/api/market-intelligence/stocks/${code}`)
   },
 
+  getStockEvidence(code: string, hours = 36, companyName = '') {
+    return ApiClient.get<{ code: string; hours: number; evidence_markdown: string }>(
+      `/api/market-intelligence/stocks/${code}/evidence`,
+      { hours, company_name: companyName }
+    )
+  },
+
+  refreshStockEvidence(code: string, companyName = '') {
+    return ApiClient.post<{ code: string; documents_seen: number; documents_saved: number; status: string }>(
+      `/api/market-intelligence/stocks/${code}/refresh-evidence`,
+      undefined,
+      {
+        params: { company_name: companyName },
+        timeout: 120000,
+        loadingText: '正在刷新个股新闻和舆情...'
+      }
+    )
+  },
+
   getSourceStatus() {
     return ApiClient.get<{ sources: CrawlerStatus[]; count: number }>(
       '/api/market-intelligence/sources/status'

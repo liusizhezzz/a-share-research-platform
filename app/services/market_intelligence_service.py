@@ -393,6 +393,9 @@ class MarketIntelligenceService:
             daily = await get_investment_daily_service()
             statuses: List[SourceStatus] = []
             candidates = await daily._load_candidates(statuses)
+            if settings.MARKET_INTELLIGENCE_INCLUDE_RECENT_ANALYSIS_STOCKS:
+                recent_candidates = await self._load_recent_analysis_candidates(statuses)
+                candidates = self._merge_candidates(candidates, recent_candidates)
             codes = [item.code for item in candidates[: settings.MARKET_INTELLIGENCE_MAX_STOCKS]]
 
             market_news = await daily._collect_market_news(statuses)
@@ -424,6 +427,7 @@ class MarketIntelligenceService:
 
             saved_documents = await self._save_documents(documents)
             saved_events = await self._save_global_events(global_events)
+            await self._persist_rolling_sources(daily, market_news, stock_news, announcements, reports, guba_posts)
             counter("market_documents").saved = saved_documents
             counter("global_events").saved = saved_events
 
@@ -717,6 +721,77 @@ class MarketIntelligenceService:
         except Exception as e:
             logger.debug("研报抓取失败: %s", e)
         return reports
+
+    async def _load_recent_analysis_candidates(self, statuses: List[SourceStatus]) -> List[Candidate]:
+        try:
+            cutoff = _utc_now() - timedelta(days=settings.MARKET_INTELLIGENCE_RECENT_ANALYSIS_DAYS)
+            candidates: Dict[str, Candidate] = {}
+            task_cursor = self.db.analysis_tasks.find(
+                {"created_at": {"$gte": cutoff}},
+                {"stock_code": 1, "stock_symbol": 1, "symbol": 1, "stock_name": 1, "status": 1, "updated_at": 1, "created_at": 1},
+            ).sort("created_at", -1).limit(80)
+            report_cursor = self.db.analysis_reports.find(
+                {"created_at": {"$gte": cutoff}},
+                {"stock_symbol": 1, "stock_code": 1, "stock_name": 1, "updated_at": 1, "created_at": 1},
+            ).sort("created_at", -1).limit(80)
+            rows = await task_cursor.to_list(length=80)
+            rows.extend(await report_cursor.to_list(length=80))
+            for row in rows:
+                code = _normalize_code(row.get("stock_code") or row.get("stock_symbol") or row.get("symbol"))
+                if not code:
+                    continue
+                score = 34.0
+                if str(row.get("status") or "").lower() in {"processing", "running", "pending"}:
+                    score += 8
+                candidates[code] = Candidate(
+                    code=code,
+                    name=str(row.get("stock_name") or ""),
+                    score=score,
+                    source="最近个股分析",
+                    reason=f"最近{settings.MARKET_INTELLIGENCE_RECENT_ANALYSIS_DAYS}天被用户分析过，持续跟踪新闻和舆情",
+                    metadata={"analysis_status": row.get("status"), "created_at": row.get("created_at")},
+                )
+            values = list(candidates.values())
+            statuses.append(SourceStatus("recent_analysis_stocks", bool(values), len(values), "读取最近分析/正在分析股票"))
+            return values
+        except Exception as e:
+            statuses.append(SourceStatus("recent_analysis_stocks", False, 0, str(e)))
+            return []
+
+    def _merge_candidates(self, base: List[Candidate], extra: List[Candidate]) -> List[Candidate]:
+        merged: Dict[str, Candidate] = {item.code: item for item in base if item.code}
+        for item in extra:
+            if not item.code:
+                continue
+            if item.code not in merged:
+                merged[item.code] = item
+            else:
+                merged[item.code].score += min(12, item.score / 4)
+                if item.source and item.source not in merged[item.code].source:
+                    merged[item.code].source += f"+{item.source}"
+                if item.reason and item.reason not in merged[item.code].reason:
+                    merged[item.code].reason = f"{merged[item.code].reason}; {item.reason}".strip("; ")
+        values = list(merged.values())
+        values.sort(key=lambda item: item.score, reverse=True)
+        return values
+
+    async def _persist_rolling_sources(
+        self,
+        daily_service: Any,
+        market_news: List[Dict[str, Any]],
+        stock_news: List[Dict[str, Any]],
+        announcements: List[Dict[str, Any]],
+        reports: List[Dict[str, Any]],
+        guba_posts: List[Dict[str, Any]],
+    ) -> None:
+        try:
+            await daily_service._persist_news(market_news + stock_news + announcements + reports)
+        except Exception as e:
+            logger.debug("滚动新闻入stock_news失败: %s", e)
+        try:
+            await daily_service._persist_social(guba_posts)
+        except Exception as e:
+            logger.debug("滚动股吧评论入social_media失败: %s", e)
 
     async def _fetch_announcements(self, daily_service: Any, codes: List[str]) -> List[Dict[str, Any]]:
         announcements: List[Dict[str, Any]] = []

@@ -94,6 +94,20 @@ def create_news_analyst(llm, toolkit):
         
         company_name = _get_company_name(ticker, market_info)
         logger.info(f"[新闻分析师] 公司名称: {company_name}")
+
+        evidence_context = ""
+        try:
+            from app.services.market_evidence_service import get_market_evidence_service
+
+            evidence_context = get_market_evidence_service().build_stock_evidence_context(
+                ticker,
+                company_name=company_name,
+                refresh_if_stale=True,
+            )
+            if evidence_context:
+                logger.info(f"[新闻分析师] ✅ 已注入滚动市场情报证据包: {len(evidence_context)} 字符")
+        except Exception as e:
+            logger.warning(f"[新闻分析师] ⚠️ 市场情报证据包获取失败，将继续使用原有新闻工具: {e}")
         
         # 🔧 使用统一新闻工具，简化工具调用
         logger.info(f"[新闻分析师] 使用统一新闻工具，自动识别股票类型并获取相应新闻")
@@ -146,6 +160,15 @@ def create_news_analyst(llm, toolkit):
 
 请撰写详细的中文分析报告，并在报告末尾附上Markdown表格总结关键发现。"""
         )
+        if evidence_context:
+            system_message += (
+                "\n\n=== 已入库滚动市场情报证据包（优先使用） ===\n"
+                f"{evidence_context}\n"
+                "=== 证据包使用规则 ===\n"
+                "1. 必须把上述证据纳入新闻事件分析和交易影响判断。\n"
+                "2. 工具实时新闻与证据包冲突时，优先使用发布时间更新、来源更权威的信息。\n"
+                "3. 必须说明新闻、舆情、研报、全球事件分别如何影响短期交易和中期预期。\n"
+            )
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -212,6 +235,8 @@ def create_news_analyst(llm, toolkit):
                 logger.info(f"[新闻分析师] 📊 调用参数: stock_code={ticker}, max_news=10, model_info={model_info}")
 
                 pre_fetched_news = unified_news_tool(stock_code=ticker, max_news=10, model_info=model_info)
+                if evidence_context:
+                    pre_fetched_news = f"{evidence_context}\n\n### 统一新闻工具补充\n{pre_fetched_news or ''}"
 
                 logger.info(f"[新闻分析师] 📋 预处理返回结果长度: {len(pre_fetched_news) if pre_fetched_news else 0} 字符")
                 logger.info(f"[新闻分析师] 📄 预处理返回结果预览 (前500字符): {pre_fetched_news[:500] if pre_fetched_news else 'None'}")
@@ -342,6 +367,8 @@ def create_news_analyst(llm, toolkit):
                     logger.info(f"[新闻分析师] 📊 调用参数: stock_code={ticker}, max_news=10")
 
                     forced_news = unified_news_tool(stock_code=ticker, max_news=10, model_info=model_info)
+                    if evidence_context:
+                        forced_news = f"{evidence_context}\n\n### 统一新闻工具补充\n{forced_news or ''}"
 
                     logger.info(f"[新闻分析师] 📋 强制获取返回结果长度: {len(forced_news) if forced_news else 0} 字符")
                     logger.info(f"[新闻分析师] 📄 强制获取返回结果预览 (前500字符): {forced_news[:500] if forced_news else 'None'}")

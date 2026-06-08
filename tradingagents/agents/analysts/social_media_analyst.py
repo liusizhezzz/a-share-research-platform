@@ -108,6 +108,20 @@ def create_social_media_analyst(llm, toolkit):
         company_name = _get_company_name_for_social_media(ticker, market_info)
         logger.info(f"[社交媒体分析师] 公司名称: {company_name}")
 
+        evidence_context = ""
+        try:
+            from app.services.market_evidence_service import get_market_evidence_service
+
+            evidence_context = get_market_evidence_service().build_stock_evidence_context(
+                ticker,
+                company_name=company_name,
+                refresh_if_stale=True,
+            )
+            if evidence_context:
+                logger.info(f"[社交媒体分析师] ✅ 已注入滚动市场情报证据包: {len(evidence_context)} 字符")
+        except Exception as e:
+            logger.warning(f"[社交媒体分析师] ⚠️ 市场情报证据包获取失败，将继续使用原有情绪工具: {e}")
+
         # 统一使用 get_stock_sentiment_unified 工具
         # 该工具内部会自动识别股票类型并调用相应的情绪数据源
         logger.info(f"[社交媒体分析师] 使用统一情绪分析工具，自动识别股票类型")
@@ -154,6 +168,15 @@ def create_social_media_analyst(llm, toolkit):
 请撰写详细的中文分析报告，并在报告末尾附上Markdown表格总结关键发现。
 注意：由于中国社交媒体API限制，如果数据获取受限，请明确说明并提供替代分析建议。"""
         )
+        if evidence_context:
+            system_message += (
+                "\n\n=== 已入库滚动市场情报证据包（优先使用） ===\n"
+                f"{evidence_context}\n"
+                "=== 舆情证据使用规则 ===\n"
+                "1. 必须把股吧评论、新闻情绪、研报观点和全球事件映射一起转化为情绪指数。\n"
+                "2. 必须区分散户讨论热度、权威新闻、券商观点和量价确认，不能把评论当成事实。\n"
+                "3. 如果舆情强但价格/资金没有确认，应明确列为情绪反噬风险。\n"
+            )
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -218,13 +241,17 @@ def create_social_media_analyst(llm, toolkit):
             logger.debug(f"📊 [DEBUG] 非Google模型 ({llm.__class__.__name__})，使用标准处理逻辑")
             
             report = ""
-            if len(result.tool_calls) == 0:
-                report = result.content
+            tool_calls = getattr(result, "tool_calls", []) or []
+            if len(tool_calls) == 0:
+                report = result.content if hasattr(result, "content") else str(result)
+
+        from langchain_core.messages import AIMessage
+        clean_message = AIMessage(content=report or (result.content if hasattr(result, "content") else ""))
 
         # 🔧 更新工具调用计数器
         return {
-            "messages": [result],
-            "sentiment_report": report,
+            "messages": [clean_message],
+            "sentiment_report": report or clean_message.content,
             "sentiment_tool_call_count": tool_call_count + 1
         }
 

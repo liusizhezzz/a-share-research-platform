@@ -27,6 +27,7 @@ from app.models.analysis import (
 from app.models.user import PyObjectId
 from app.models.notification import NotificationCreate
 from bson import ObjectId
+from app.core.config import settings
 from app.core.database import get_mongo_db
 from app.services.config_service import ConfigService
 from app.services.memory_state_manager import get_memory_state_manager, TaskStatus
@@ -530,10 +531,10 @@ def create_analysis_config(
             logger.warning(f"⚠️  未知厂家 {llm_provider}，尝试从数据库获取配置")
             try:
                 from pymongo import MongoClient
-                from app.core.config import settings
+                from app.core.config import settings as app_settings
 
-                client = MongoClient(settings.MONGO_URI)
-                db = client[settings.MONGO_DB]
+                client = MongoClient(app_settings.MONGO_URI)
+                db = client[app_settings.MONGO_DB]
                 providers_collection = db.llm_providers
                 provider_doc = providers_collection.find_one({"name": llm_provider})
 
@@ -551,6 +552,18 @@ def create_analysis_config(
                 config["backend_url"] = "https://api.openai.com/v1"
 
         logger.info(f"⚠️  使用回退的 backend_url: {config['backend_url']}")
+
+    # 市场情报注入开启时，强制让新闻和社媒分析师参与，保证滚动信息流进入后续交易/风控链路。
+    if settings.MARKET_INTELLIGENCE_INJECT_TO_ANALYSIS and settings.MARKET_INTELLIGENCE_FORCE_NEWS_SOCIAL_ANALYSTS:
+        normalized_analysts = []
+        for analyst in selected_analysts or []:
+            if analyst and analyst not in normalized_analysts:
+                normalized_analysts.append(analyst)
+        for analyst in ("news", "social"):
+            if analyst not in normalized_analysts:
+                normalized_analysts.append(analyst)
+        selected_analysts = normalized_analysts
+        logger.info(f"🌐 [市场情报注入] 个股分析师列表已补充: {selected_analysts}")
 
     # 添加分析师配置
     config["selected_analysts"] = selected_analysts
@@ -1658,6 +1671,22 @@ class SimpleAnalysisService:
                 except Exception as fallback_error:
                     logger.warning(f"⚠️ 降级提取也失败: {fallback_error}")
 
+            try:
+                if settings.MARKET_INTELLIGENCE_INJECT_TO_ANALYSIS:
+                    from app.services.market_evidence_service import get_market_evidence_service
+
+                    evidence_report = get_market_evidence_service().build_stock_evidence_context(
+                        request.stock_code,
+                        company_name=self._resolve_stock_name(request.stock_code) if hasattr(self, "_resolve_stock_name") else "",
+                        refresh_if_stale=False,
+                        max_chars=12000,
+                    )
+                    if evidence_report:
+                        reports["market_intelligence_evidence"] = evidence_report
+                        logger.info(f"🌐 [REPORTS] 已保存市场情报证据包: {len(evidence_report)} 字符")
+            except Exception as e:
+                logger.warning(f"⚠️ 保存市场情报证据包失败: {e}")
+
             # 🔥 格式化decision数据（参考web目录的实现）
             formatted_decision = {}
             try:
@@ -1796,7 +1825,7 @@ class SimpleAnalysisService:
                 "tokens_used": decision.get("tokens_used", 0) if isinstance(decision, dict) else 0,
                 "state": state,
                 # 添加分析师信息
-                "analysts": request.parameters.selected_analysts if request.parameters else [],
+                "analysts": config.get("selected_analysts") or (request.parameters.selected_analysts if request.parameters else []),
                 "research_depth": request.parameters.research_depth if request.parameters else "快速",
                 # 添加提取的报告内容
                 "reports": reports,

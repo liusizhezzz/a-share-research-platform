@@ -1,6 +1,8 @@
 """
 Market intelligence dashboard API.
 """
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.response import ok
@@ -9,6 +11,7 @@ from app.services.market_intelligence_service import (
     REPORT_TYPES,
     get_market_intelligence_service,
 )
+from app.services.market_evidence_service import get_market_evidence_service
 
 router = APIRouter(prefix="/api/market-intelligence", tags=["market-intelligence"])
 
@@ -91,6 +94,40 @@ async def get_stock_signal(
     return ok(data=stock, message="获取个股信号成功")
 
 
+@router.get("/stocks/{code}/evidence", response_model=dict)
+async def get_stock_evidence(
+    code: str,
+    hours: int = Query(36, ge=1, le=168),
+    company_name: str = Query("", description="可选股票名称，用于显示和相关性补充"),
+    current_user: dict = Depends(get_current_user),
+):
+    service = get_market_evidence_service()
+    evidence = await asyncio.to_thread(
+        service.build_stock_evidence_context,
+        code,
+        hours=hours,
+        company_name=company_name,
+        refresh_if_stale=False,
+        max_chars=16000,
+    )
+    return ok(data={"code": code, "hours": hours, "evidence_markdown": evidence}, message="获取个股市场证据成功")
+
+
+@router.post("/stocks/{code}/refresh-evidence", response_model=dict)
+async def refresh_stock_evidence(
+    code: str,
+    company_name: str = Query("", description="可选股票名称，用于提高搜索相关度"),
+    current_user: dict = Depends(get_current_user),
+):
+    service = get_market_evidence_service()
+    result = await asyncio.to_thread(
+        service.refresh_stock_evidence_sync,
+        code,
+        company_name=company_name,
+    )
+    return ok(data=result, message="个股证据刷新完成")
+
+
 @router.get("/sources/status", response_model=dict)
 async def get_market_intelligence_source_status(
     current_user: dict = Depends(get_current_user),
@@ -98,4 +135,3 @@ async def get_market_intelligence_source_status(
     service = await get_market_intelligence_service()
     statuses = await service.get_source_status()
     return ok(data={"sources": statuses, "count": len(statuses)}, message="获取数据源状态成功")
-
