@@ -75,6 +75,83 @@ async def get_global_event(
     return ok(data=event, message="获取全球事件详情成功")
 
 
+@router.get("/documents", response_model=dict)
+async def get_market_documents(
+    hours: int = Query(36, ge=1, le=168),
+    code: str = Query("", description="可选股票代码"),
+    cluster_id: str = Query("", description="可选事件簇ID"),
+    source: str = Query("", description="可选来源"),
+    document_type: str = Query("", description="news|stock_news|social_comment|announcement|research_report|quant_signal"),
+    limit: int = Query(100, ge=1, le=300),
+    current_user: dict = Depends(get_current_user),
+):
+    service = await get_market_intelligence_service()
+    docs = await service.get_documents(
+        hours=hours,
+        code=code or None,
+        cluster_id=cluster_id or None,
+        source=source or None,
+        document_type=document_type or None,
+        limit=limit,
+    )
+    return ok(data={"documents": docs, "count": len(docs)}, message="获取市场证据成功")
+
+
+@router.get("/event-clusters", response_model=dict)
+async def get_event_clusters(
+    hours: int = Query(36, ge=1, le=168),
+    limit: int = Query(50, ge=1, le=100),
+    current_user: dict = Depends(get_current_user),
+):
+    service = await get_market_intelligence_service()
+    clusters = await service.get_event_clusters(hours=hours, limit=limit)
+    return ok(data={"clusters": clusters, "count": len(clusters)}, message="获取事件聚合成功")
+
+
+@router.post("/events/{event_id}/analyze", response_model=dict)
+async def analyze_event_impact(
+    event_id: str,
+    force: bool = Query(False, description="是否强制重新分析"),
+    current_user: dict = Depends(get_current_user),
+):
+    service = await get_market_intelligence_service()
+    try:
+        analysis = await service.analyze_event_impact(event_id, force=force)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="全球事件不存在")
+    return ok(data=analysis, message="事件影响分析完成")
+
+
+@router.get("/events/{event_id}/analysis", response_model=dict)
+async def get_event_impact_analysis(
+    event_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    service = await get_market_intelligence_service()
+    analysis = await service.get_event_analysis(event_id)
+    if not analysis:
+        return ok(data={"event_id": event_id, "status": "not_started"}, message="事件尚未分析")
+    return ok(data=analysis, message="获取事件影响分析成功")
+
+
+@router.get("/regions/{region_id}/events", response_model=dict)
+async def get_region_events(
+    region_id: str,
+    hours: int = Query(72, ge=1, le=168),
+    current_user: dict = Depends(get_current_user),
+):
+    service = await get_market_intelligence_service()
+    events = await service.get_global_events(hours=hours, severity="all")
+    region_lower = region_id.lower()
+    filtered = [
+        event for event in events
+        if region_lower in str(event.get("region") or "").lower()
+        or region_lower in str(event.get("country") or "").lower()
+        or region_lower in str(event.get("location_name") or "").lower()
+    ]
+    return ok(data={"events": filtered, "count": len(filtered)}, message="获取区域事件成功")
+
+
 @router.get("/themes", response_model=dict)
 async def get_theme_signals(current_user: dict = Depends(get_current_user)):
     service = await get_market_intelligence_service()
@@ -92,6 +169,40 @@ async def get_stock_signal(
     if not stock:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="个股信号不存在")
     return ok(data=stock, message="获取个股信号成功")
+
+
+@router.get("/stocks/{code}/detail", response_model=dict)
+async def get_stock_intelligence_detail(
+    code: str,
+    hours: int = Query(72, ge=1, le=168),
+    current_user: dict = Depends(get_current_user),
+):
+    service = await get_market_intelligence_service()
+    stock = await service.get_stock_detail(code, hours=hours)
+    if not stock:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="个股情报不存在")
+    return ok(data=stock, message="获取个股情报详情成功")
+
+
+@router.get("/stocks/{code}/comments", response_model=dict)
+async def get_stock_comments(
+    code: str,
+    hours: int = Query(72, ge=1, le=168),
+    limit: int = Query(200, ge=1, le=500),
+    current_user: dict = Depends(get_current_user),
+):
+    service = await get_market_intelligence_service()
+    comments = await service.get_stock_comments(code, hours=hours, limit=limit)
+    return ok(data=comments, message="获取个股评论舆情成功")
+
+
+@router.get("/methodology", response_model=dict)
+async def get_market_intelligence_methodology(
+    current_user: dict = Depends(get_current_user),
+):
+    service = await get_market_intelligence_service()
+    methodology = await service.get_methodology()
+    return ok(data=methodology, message="获取评分方法论成功")
 
 
 @router.get("/stocks/{code}/evidence", response_model=dict)

@@ -89,11 +89,11 @@ class OpenAICompatibleBase(ChatOpenAI):
 
             # 从环境变量读取 API Key
             env_api_key = os.getenv(api_key_env_var)
-            logger.info(f"🔍 [{provider_name}初始化] 从环境变量读取 {api_key_env_var}: {'有值' if env_api_key else '空'}")
+            logger.info(f"🔍 [{provider_name}初始化] {api_key_env_var}: {'已配置' if env_api_key else '未配置'}")
 
             # 验证环境变量中的 API Key 是否有效（排除占位符）
             if env_api_key and is_valid_api_key(env_api_key):
-                logger.info(f"✅ [{provider_name}初始化] 环境变量中的 API Key 有效，长度: {len(env_api_key)}, 前10位: {env_api_key[:10]}...")
+                logger.info(f"✅ [{provider_name}初始化] 环境变量中的 API Key 已通过有效性检查")
                 api_key = env_api_key
             elif env_api_key:
                 logger.warning(f"⚠️ [{provider_name}初始化] 环境变量中的 API Key 无效（可能是占位符），将被忽略")
@@ -109,7 +109,7 @@ class OpenAICompatibleBase(ChatOpenAI):
                     f"请在 Web 界面配置 API Key (设置 -> 大模型厂家) 或设置 {api_key_env_var} 环境变量。"
                 )
         else:
-            logger.info(f"✅ [{provider_name}初始化] 使用传入的 API Key（来自数据库配置），长度: {len(api_key)}")
+            logger.info(f"✅ [{provider_name}初始化] 使用传入的 API Key（来自数据库配置）")
         
         # 设置OpenAI兼容参数
         # 注意：model参数会被Pydantic映射到model_name字段
@@ -447,7 +447,16 @@ OPENAI_COMPATIBLE_PROVIDERS = {
             "qwen-plus": {"context_length": 32768, "supports_function_calling": True},
             "qwen-plus-latest": {"context_length": 32768, "supports_function_calling": True},
             "qwen-max": {"context_length": 32768, "supports_function_calling": True},
-            "qwen-max-latest": {"context_length": 32768, "supports_function_calling": True}
+            "qwen-max-latest": {"context_length": 32768, "supports_function_calling": True},
+            "qwen3.7-max": {"context_length": 131072, "supports_function_calling": True},
+            "qwen3.7-plus": {"context_length": 131072, "supports_function_calling": True},
+            "qwen3.6-flash": {"context_length": 65536, "supports_function_calling": True},
+            "deepseek-v4-pro": {"context_length": 131072, "supports_function_calling": True},
+            "deepseek-v4-flash": {"context_length": 65536, "supports_function_calling": True},
+            "kimi-k2.6": {"context_length": 131072, "supports_function_calling": True},
+            "glm-5.1": {"context_length": 131072, "supports_function_calling": True},
+            "MiniMax-M2.7": {"context_length": 131072, "supports_function_calling": True},
+            "mimo-v2.5-pro": {"context_length": 131072, "supports_function_calling": True}
         }
     },
     "qianfan": {

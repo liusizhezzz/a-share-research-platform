@@ -70,11 +70,11 @@ class ChatGoogleOpenAI(ChatGoogleGenerativeAI):
 
             # 检查环境变量中的 API Key
             env_api_key = os.getenv("GOOGLE_API_KEY")
-            logger.info(f"🔍 [Google初始化] 从环境变量读取 GOOGLE_API_KEY: {'有值' if env_api_key else '空'}")
+            logger.info(f"🔍 [Google初始化] GOOGLE_API_KEY: {'已配置' if env_api_key else '未配置'}")
 
             # 验证环境变量中的 API Key 是否有效（排除占位符）
             if env_api_key and is_valid_api_key(env_api_key):
-                logger.info(f"✅ [Google初始化] 环境变量中的 API Key 有效，长度: {len(env_api_key)}, 前10位: {env_api_key[:10]}...")
+                logger.info("✅ [Google初始化] 环境变量中的 API Key 已通过有效性检查")
                 google_api_key = env_api_key
             elif env_api_key:
                 logger.warning("⚠️ [Google初始化] 环境变量中的 API Key 无效（可能是占位符），将被忽略")
@@ -85,7 +85,7 @@ class ChatGoogleOpenAI(ChatGoogleGenerativeAI):
         else:
             logger.info("✅ [Google初始化] 使用 kwargs 中传入的 API Key（来自数据库配置）")
 
-        logger.info(f"🔍 [Google初始化] 最终使用的 API Key: {'有值' if google_api_key else '空'}")
+        logger.info(f"🔍 [Google初始化] 最终使用的 API Key: {'已配置' if google_api_key else '未配置'}")
 
         if not google_api_key:
             logger.error("❌ [Google初始化] API Key 检查失败，即将抛出异常")

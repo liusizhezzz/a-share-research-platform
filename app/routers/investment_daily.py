@@ -1,7 +1,10 @@
 """
 Investment daily report API.
 """
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 
 from app.core.response import ok
 from app.routers.auth_db import get_current_user
@@ -47,3 +50,67 @@ async def generate_investment_daily(
     service = await get_investment_daily_service()
     report = await service.generate_daily_report(force_refresh=force_refresh)
     return ok(data=report, message="投资日报生成成功")
+
+
+@router.post("/{report_id}/preanalyze", response_model=dict)
+async def preanalyze_investment_daily_candidates(
+    report_id: str,
+    limit: int = Query(8, ge=1, le=10),
+    current_user: dict = Depends(get_current_user),
+):
+    service = await get_investment_daily_service()
+    try:
+        result = await service.preanalyze_report_candidates(
+            report_id,
+            user_id=str(current_user.get("id") or current_user.get("_id") or ""),
+            limit=limit,
+        )
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="投资日报不存在")
+    return ok(data=result, message="候选股预分析已提交")
+
+
+@router.get("/{report_id}/download")
+async def download_investment_daily_report(
+    report_id: str,
+    format: str = Query("pdf", description="pdf|markdown|json"),
+    current_user: dict = Depends(get_current_user),
+):
+    service = await get_investment_daily_service()
+    report = await service.get_report(report_id)
+    if not report:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="投资日报不存在")
+
+    report_date = report.get("report_date") or "daily"
+    markdown_content = report.get("markdown") or f"# {report.get('title', '投资日报')}\n\n{report.get('summary', '')}"
+
+    if format == "json":
+        content = json.dumps(report, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+        return StreamingResponse(
+            iter([content]),
+            media_type="application/json",
+            headers={"Content-Disposition": f"attachment; filename=investment_daily_{report_date}.json"},
+        )
+
+    if format in {"markdown", "md"}:
+        return StreamingResponse(
+            iter([markdown_content.encode("utf-8")]),
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename=investment_daily_{report_date}.md"},
+        )
+
+    if format == "pdf":
+        try:
+            from app.utils.report_exporter import report_exporter
+
+            html_content = report_exporter._markdown_to_html(markdown_content)
+            pdf_content = report_exporter._generate_pdf_with_pdfkit(html_content)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"PDF生成失败: {str(e)}")
+        return StreamingResponse(
+            iter([pdf_content]),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=investment_daily_{report_date}.pdf"},
+        )
+
+    raise HTTPException(status_code=400, detail=f"不支持的下载格式: {format}")

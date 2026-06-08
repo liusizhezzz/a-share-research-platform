@@ -79,7 +79,7 @@ const handleWizardComplete = async (data: any) => {
         // 先添加厂家（如果不存在）
         const providerMap: Record<string, { name: string; base_url?: string }> = {
           deepseek: { name: 'DeepSeek', base_url: 'https://api.deepseek.com' },
-          dashscope: { name: '通义千问', base_url: 'https://dashscope.aliyuncs.com/api/v1' },
+          dashscope: { name: '通义千问', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
           openai: { name: 'OpenAI', base_url: 'https://api.openai.com/v1' },
           google: { name: 'Google Gemini', base_url: 'https://generativelanguage.googleapis.com/v1' }
         }

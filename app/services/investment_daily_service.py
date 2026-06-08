@@ -254,12 +254,18 @@ class InvestmentDailyService:
         ]
         stock_news = await self._collect_stock_news(candidate_codes, source_statuses)
         guba_posts = await self._collect_guba_posts(candidate_codes[:8], source_statuses)
+        rolling = await self._load_rolling_evidence(candidate_codes, source_statuses)
+        market_news.extend(rolling.get("market_news", []))
+        stock_news.extend(rolling.get("stock_news", []))
+        guba_posts.extend(rolling.get("social_comments", []))
         quotes = await self._load_quotes(candidate_codes)
         basics = await self._load_basic_info(candidate_codes)
 
         all_news = self._dedupe_items(market_news + stock_news, key_fields=("url", "title"))
+        all_news.sort(key=lambda item: _parse_dt(item.get("publish_time")), reverse=True)
         directions = self._rank_directions(all_news)
         stock_picks = self._rank_stocks(candidates, quotes, basics, stock_news, guba_posts, directions)
+        event_clusters = self._build_event_clusters_for_report(all_news, stock_news, guba_posts)
 
         report = {
             "report_date": report_date,
@@ -272,6 +278,7 @@ class InvestmentDailyService:
             "stocks": stock_picks,
             "market_news": all_news[:40],
             "international_news": international_news[:15],
+            "event_clusters": event_clusters[:20],
             "social_comments": guba_posts[:30],
             "strategy_inputs": [candidate.__dict__ for candidate in candidates[:30]],
             "sources": [status.__dict__ for status in source_statuses],
@@ -301,6 +308,69 @@ class InvestmentDailyService:
         })
 
         return _jsonable(saved or report)
+
+    async def preanalyze_report_candidates(
+        self,
+        report_id: str,
+        *,
+        user_id: str,
+        limit: int = 8,
+    ) -> Dict[str, Any]:
+        """Submit TradingAgents analysis tasks for the top daily candidates."""
+        report = await self.get_report(report_id)
+        if not report:
+            raise ValueError("investment daily report not found")
+        stocks = report.get("stocks") or []
+        selected = stocks[: max(1, min(limit, 10))]
+        if not selected:
+            return {"status": "empty", "task_ids": [], "mapping": []}
+
+        from app.models.analysis import AnalysisParameters, SingleAnalysisRequest
+        from app.services.simple_analysis_service import get_simple_analysis_service
+
+        service = get_simple_analysis_service()
+        task_ids: List[str] = []
+        mapping: List[Dict[str, Any]] = []
+        parameters = AnalysisParameters(
+            market_type="A股",
+            research_depth="标准",
+            selected_analysts=["market", "fundamentals", "news", "social"],
+            include_sentiment=True,
+            include_risk=True,
+            language="zh-CN",
+            quick_analysis_model="qwen3.7-plus",
+            deep_analysis_model="qwen3.7-max",
+        )
+
+        async def run_one(task_id: str, req: SingleAnalysisRequest) -> None:
+            try:
+                await service.execute_analysis_background(task_id, user_id, req)
+            except Exception as e:
+                logger.error("日报候选股预分析失败 %s: %s", task_id, e, exc_info=True)
+
+        for stock in selected:
+            code = _normalize_code(stock.get("code"))
+            if not code:
+                continue
+            req = SingleAnalysisRequest(symbol=code, stock_code=code, parameters=parameters)
+            created = await service.create_analysis_task(user_id, req)
+            task_id = created.get("task_id")
+            if not task_id:
+                continue
+            task_ids.append(task_id)
+            mapping.append({
+                "code": code,
+                "name": stock.get("name"),
+                "task_id": task_id,
+                "status": "submitted",
+            })
+            asyncio.create_task(run_one(task_id, req))
+
+        await self.collection.update_one(
+            {"_id": ObjectId(report["_id"])} if ObjectId.is_valid(str(report.get("_id"))) else {"report_date": report.get("report_date")},
+            {"$set": {"preanalysis": {"submitted_at": _utc_now(), "task_ids": task_ids, "mapping": mapping}}},
+        )
+        return {"status": "submitted", "task_ids": task_ids, "mapping": mapping, "count": len(task_ids)}
 
     async def _load_candidates(self, statuses: List[SourceStatus]) -> List[Candidate]:
         merged: Dict[str, Candidate] = {}
@@ -400,19 +470,141 @@ class InvestmentDailyService:
                     continue
                 pct = _safe_float(row.get("pct_chg"))
                 amount = _safe_float(row.get("amount"))
+                if pct >= 9.6:
+                    continue
+                momentum = max(0.0, 12 - abs(pct - 3.2) * 2.2)
+                liquidity = min(amount / 1_000_000_000, 14)
+                price_in_penalty = max(0.0, pct - 6.5) * 2.5
                 candidates.append(Candidate(
                     code=code,
                     name=str(row.get("name") or ""),
-                    score=20 + min(max(pct, -10), 10) + min(amount / 1_000_000_000, 10),
-                    source="行情强度",
-                    reason=f"近期涨跌幅 {pct:.2f}%",
-                    metadata={"pct_chg": pct, "amount": amount},
+                    score=28 + momentum + liquidity - price_in_penalty,
+                    source="预测候选:量价活跃",
+                    reason=f"涨跌幅 {pct:.2f}% 且成交额活跃，作为下一开盘观察候选而非单纯涨幅榜",
+                    metadata={
+                        "pct_chg": pct,
+                        "amount": amount,
+                        "momentum_component": round(momentum, 2),
+                        "liquidity_component": round(liquidity, 2),
+                        "price_in_penalty": round(price_in_penalty, 2),
+                    },
                 ))
-            statuses.append(SourceStatus("market_quotes", bool(candidates), len(candidates), "按涨跌幅选取市场活跃股票"))
+            statuses.append(SourceStatus("market_quotes", bool(candidates), len(candidates), "按量价结构选取下一开盘候选，过滤一字涨停和过热标的"))
             return candidates
         except Exception as e:
             statuses.append(SourceStatus("market_quotes", False, 0, str(e)))
             return []
+
+    async def _load_rolling_evidence(self, codes: List[str], statuses: List[SourceStatus]) -> Dict[str, List[Dict[str, Any]]]:
+        """Load the shared rolling evidence pool generated by market intelligence."""
+        try:
+            cutoff = _utc_now() - timedelta(hours=settings.INVESTMENT_DAILY_HOURS_BACK)
+            query = {"published_at": {"$gte": cutoff}}
+            docs = await self.db.market_documents.find(query).sort("published_at", -1).limit(260).to_list(length=260)
+            code_set = set(codes)
+            market_news: List[Dict[str, Any]] = []
+            stock_news: List[Dict[str, Any]] = []
+            social_comments: List[Dict[str, Any]] = []
+            for doc in docs:
+                doc_type = doc.get("document_type")
+                symbols = [_normalize_code(s) for s in (doc.get("symbols") or [])]
+                item = {
+                    "symbol": symbols[0] if symbols else None,
+                    "title": doc.get("title"),
+                    "content": doc.get("content") or doc.get("summary") or "",
+                    "summary": doc.get("summary") or "",
+                    "url": doc.get("url") or "",
+                    "source": doc.get("source") or doc.get("data_source") or "滚动证据池",
+                    "publish_time": doc.get("published_at"),
+                    "category": (doc.get("themes") or ["general"])[0],
+                    "sentiment": doc.get("sentiment") or "neutral",
+                    "sentiment_score": _safe_float(doc.get("sentiment_score")),
+                    "importance": doc.get("importance") or "medium",
+                    "keywords": doc.get("themes") or [],
+                    "data_source": doc.get("data_source") or "market_documents",
+                }
+                if doc_type == "social_comment":
+                    social_comments.append({
+                        "message_id": doc.get("doc_key"),
+                        "symbol": item["symbol"],
+                        "platform": doc.get("data_source") or "market_documents",
+                        "message_type": "post",
+                        "content": item["title"] or item["content"],
+                        "publish_time": item["publish_time"],
+                        "sentiment": item["sentiment"],
+                        "sentiment_score": item["sentiment_score"],
+                        "importance": item["importance"],
+                        "url": item["url"],
+                        "author": {"name": item["source"], "verified": False, "influence_score": _safe_float(doc.get("influence_score"))},
+                        "engagement": {},
+                        "keywords": item["keywords"],
+                        "topics": item["keywords"],
+                        "data_source": item["data_source"],
+                    })
+                elif symbols and code_set.intersection(set(symbols)):
+                    stock_news.append(item)
+                elif doc_type in {"news", "stock_news", "announcement", "research_report"}:
+                    market_news.append(item)
+            statuses.append(SourceStatus("rolling_market_documents", bool(docs), len(docs), "读取5分钟滚动证据池"))
+            return {
+                "market_news": self._dedupe_items(market_news, ("url", "title")),
+                "stock_news": self._dedupe_items(stock_news, ("url", "title")),
+                "social_comments": self._dedupe_items(social_comments, ("url", "content")),
+            }
+        except Exception as e:
+            statuses.append(SourceStatus("rolling_market_documents", False, 0, str(e)))
+            return {"market_news": [], "stock_news": [], "social_comments": []}
+
+    def _build_event_clusters_for_report(
+        self,
+        market_news: List[Dict[str, Any]],
+        stock_news: List[Dict[str, Any]],
+        social_comments: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for item in market_news + stock_news:
+            text = f"{item.get('title', '')} {item.get('content', '')}"
+            themes = self._match_themes(text)
+            symbol = _normalize_code(item.get("symbol"))
+            normalized_title = re.sub(r"\s+", "", str(item.get("title") or ""))[:24]
+            basis = f"{symbol or (themes[0] if themes else '')}:{normalized_title}"
+            cluster_id = hashlib.sha1(basis.encode("utf-8")).hexdigest()[:18]
+            cluster = grouped.setdefault(cluster_id, {
+                "cluster_id": cluster_id,
+                "title": item.get("title"),
+                "summary": item.get("summary") or item.get("content", "")[:160],
+                "items": [],
+                "symbols": set(),
+                "themes": set(),
+                "sources": set(),
+                "last_published_at": _parse_dt(item.get("publish_time")),
+                "sentiment_total": 0.0,
+            })
+            if len(cluster["items"]) < 8:
+                cluster["items"].append(item)
+            if symbol:
+                cluster["symbols"].add(symbol)
+            cluster["themes"].update(themes)
+            cluster["sources"].add(item.get("source") or "未知")
+            cluster["last_published_at"] = max(cluster["last_published_at"], _parse_dt(item.get("publish_time")))
+            cluster["sentiment_total"] += _safe_float(item.get("sentiment_score"))
+        result = []
+        for cluster in grouped.values():
+            count = len(cluster["items"])
+            result.append({
+                "cluster_id": cluster["cluster_id"],
+                "title": cluster["title"],
+                "summary": cluster["summary"],
+                "items": cluster["items"],
+                "item_count": count,
+                "symbols": sorted(cluster["symbols"]),
+                "themes": sorted(cluster["themes"]),
+                "sources": sorted(cluster["sources"]),
+                "last_published_at": cluster["last_published_at"],
+                "avg_sentiment": round(cluster["sentiment_total"] / max(count, 1), 3),
+            })
+        result.sort(key=lambda item: _parse_dt(item.get("last_published_at")), reverse=True)
+        return result
 
     async def _collect_market_news(self, statuses: List[SourceStatus]) -> List[Dict[str, Any]]:
         items: List[Dict[str, Any]] = []
@@ -796,18 +988,25 @@ class InvestmentDailyService:
             for direction in direction_names:
                 if direction in text:
                     theme_bonus += 5.0
+            price_in_penalty = max(0.0, pct - 6.5) * 3.0
+            quant_component = min(candidate.score, 60)
+            momentum_component = max(min(pct, 6), -4) * 1.5
+            liquidity_component = min(amount / 1_000_000_000, 8)
+            news_component = news_sentiment * 8
+            social_component = social_sentiment * 4
             score = (
-                min(candidate.score, 60)
-                + max(min(pct, 10), -10) * 1.5
-                + min(amount / 1_000_000_000, 8)
-                + news_sentiment * 8
-                + social_sentiment * 4
+                quant_component
+                + momentum_component
+                + liquidity_component
+                + news_component
+                + social_component
                 + theme_bonus
+                - price_in_penalty
             )
             results.append({
                 "code": code,
                 "name": candidate.name or basic.get("name") or q.get("name") or code,
-                "score": round(score, 2),
+                "score": round(max(0.0, min(100.0, score)), 2),
                 "source": candidate.source,
                 "reason": candidate.reason,
                 "industry": basic.get("industry") or basic.get("market") or "-",
@@ -820,6 +1019,21 @@ class InvestmentDailyService:
                 "comment_count": len(related_posts),
                 "headlines": [n.get("title", "") for n in related_news[:3]],
                 "comments": [p.get("content", "") for p in related_posts[:3]],
+                "prediction_horizon": "下一次开盘至未来1-3个交易日",
+                "price_in_penalty": round(price_in_penalty, 2),
+                "score_breakdown": {
+                    "formula": "量化/候选来源 + 量价结构 + 成交额 + 新闻情绪 + 评论情绪 + 主题加成 - price-in惩罚",
+                    "input_values": {
+                        "quant_component": round(quant_component, 2),
+                        "momentum_component": round(momentum_component, 2),
+                        "liquidity_component": round(liquidity_component, 2),
+                        "news_component": round(news_component, 2),
+                        "social_component": round(social_component, 2),
+                        "theme_bonus": round(theme_bonus, 2),
+                        "price_in_penalty": round(price_in_penalty, 2),
+                    },
+                    "normalization_method": "涨幅超过6.5%开始price-in扣分；涨停/过热标的在候选源头过滤",
+                },
             })
         results.sort(key=lambda item: item["score"], reverse=True)
         return results[: settings.INVESTMENT_DAILY_MAX_STOCKS]
@@ -844,12 +1058,26 @@ class InvestmentDailyService:
         avg_pct = 0.0
         if quotes:
             avg_pct = sum(_safe_float(q.get("pct_chg")) for q in quotes.values()) / max(len(quotes), 1)
-        score = max(0, min(100, 50 + sentiment * 1.5 + avg_pct * 3))
+        breadth_component = max(0, min(100, 50 + avg_pct * 5))
+        news_component = max(0, min(100, 50 + sentiment * 1.5))
+        activity_component = max(0, min(100, 35 + len(news_items) * 1.2))
+        score = max(0, min(100, breadth_component * 0.35 + news_component * 0.35 + activity_component * 0.30))
         return {
             "score": round(score, 1),
             "label": "热" if score >= 65 else "冷" if score <= 40 else "中性",
             "news_count": len(news_items),
             "avg_candidate_pct_chg": round(avg_pct, 2),
+            "score_breakdown": {
+                "formula": "35%候选平均涨跌幅广度 + 35%新闻情绪 + 30%新闻活跃度",
+                "input_values": {
+                    "breadth_component": round(breadth_component, 2),
+                    "news_component": round(news_component, 2),
+                    "activity_component": round(activity_component, 2),
+                    "raw_sentiment_sum": round(sentiment, 3),
+                    "avg_candidate_pct_chg": round(avg_pct, 2),
+                },
+                "normalization_method": "各项先映射到0-100后加权；不是简单按新闻数量打满分",
+            },
         }
 
     def _build_risk_warnings(self, international_news: List[Dict[str, Any]], news_items: List[Dict[str, Any]]) -> List[str]:
@@ -876,11 +1104,17 @@ class InvestmentDailyService:
         for item in report["directions"][:6]:
             lines.append(f"- {item['name']}：热度 {item['heat']}，评分 {item['score']}，情绪 {item['sentiment_score']}")
         lines.append("")
-        lines.append("## 股票候选")
+        lines.append("## 下一阶段股票候选")
         for item in report["stocks"]:
             lines.append(
-                f"- {item['name']}({item['code']})：综合分 {item['score']}，涨跌幅 {item['pct_chg']:.2f}%，"
-                f"来源 {item['source']}；理由：{item['reason']}"
+                f"- {item['name']}({item['code']})：预测分 {item['score']}，涨跌幅 {item['pct_chg']:.2f}%，"
+                f"price-in惩罚 {item.get('price_in_penalty', 0)}；来源 {item['source']}；理由：{item['reason']}"
+            )
+        lines.append("")
+        lines.append("## 新闻事件簇")
+        for cluster in report.get("event_clusters", [])[:8]:
+            lines.append(
+                f"- {cluster.get('title')}：{cluster.get('item_count', 0)}条，主题 {', '.join(cluster.get('themes') or []) or '未分类'}"
             )
         lines.append("")
         lines.append("## 国际与宏观线索")
@@ -890,6 +1124,13 @@ class InvestmentDailyService:
         lines.append("## 风险提示")
         for warning in report["risk_warnings"]:
             lines.append(f"- {warning}")
+        lines.extend([
+            "",
+            "## 评分方法",
+            "- 候选股预测分 = 量化/候选来源 + 量价结构 + 成交额 + 新闻情绪 + 评论情绪 + 主题加成 - price-in惩罚。",
+            "- 市场温度 = 35%候选平均涨跌幅广度 + 35%新闻情绪 + 30%新闻活跃度。",
+            "- 日报为研究辅助，不构成投资建议；必须等待竞价、量价和风险反证确认。",
+        ])
         return "\n".join(lines)
 
     async def _run_limited(self, coroutines: List[Any], limit: int) -> List[List[Dict[str, Any]]]:
@@ -972,6 +1213,9 @@ class InvestmentDailyService:
 
     def _matches_keywords(self, text: str, keywords: List[str]) -> bool:
         return any(keyword.lower() in text.lower() for keyword in keywords)
+
+    def _match_themes(self, text: str) -> List[str]:
+        return [theme for theme, keywords in THEME_KEYWORDS.items() if self._matches_keywords(text or "", keywords)]
 
     def _extract_matched_keywords(self, text: str) -> List[str]:
         keywords = []

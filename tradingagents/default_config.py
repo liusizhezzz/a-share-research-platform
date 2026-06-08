@@ -9,10 +9,10 @@ DEFAULT_CONFIG = {
         "dataflows/data_cache",
     ),
     # LLM settings
-    "llm_provider": "openai",
-    "deep_think_llm": "o4-mini",
-    "quick_think_llm": "gpt-4o-mini",
-    "backend_url": "https://api.openai.com/v1",
+    "llm_provider": "dashscope",
+    "deep_think_llm": os.getenv("TRADINGAGENTS_DEEP_MODEL", "qwen3.7-max"),
+    "quick_think_llm": os.getenv("TRADINGAGENTS_QUICK_MODEL", "qwen3.7-plus"),
+    "backend_url": os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
     # Debate and discussion settings
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,

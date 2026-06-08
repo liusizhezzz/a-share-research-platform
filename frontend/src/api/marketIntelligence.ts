@@ -5,6 +5,13 @@ export interface SourceCoverage {
   ok_count: number
   total: number
   label: string
+  score_breakdown?: ScoreBreakdown
+}
+
+export interface ScoreBreakdown {
+  formula: string
+  input_values?: Record<string, any>
+  normalization_method?: string
 }
 
 export interface GlobalEvent {
@@ -100,6 +107,22 @@ export interface EventImpactChain {
   mapped_stocks?: StockOpportunity[]
 }
 
+export interface EventCluster {
+  cluster_id: string
+  title: string
+  summary?: string
+  document_count?: number
+  event_count?: number
+  source_count?: number
+  sources?: string[]
+  themes?: string[]
+  symbols?: string[]
+  last_published_at?: string
+  impact_score?: number
+  score_breakdown?: ScoreBreakdown
+  documents?: MarketDocument[]
+}
+
 export interface ThemeHeatmapNode {
   name: string
   value: number
@@ -112,12 +135,14 @@ export interface ThemeHeatmapNode {
   trend: string
   keywords?: string[]
   headlines?: string[]
+  score_breakdown?: ScoreBreakdown
 }
 
 export interface IndustryMatrixCell {
   theme: string
   dimension: string
   value: number
+  score_breakdown?: ScoreBreakdown
 }
 
 export interface StockOpportunity {
@@ -141,6 +166,14 @@ export interface StockOpportunity {
   price?: number
   headlines?: string[]
   documents?: MarketDocument[]
+  event_clusters?: EventCluster[]
+  comments?: MarketDocument[]
+  sentiment_summary?: Record<string, any>
+  company_exposure?: Record<string, any>
+  prediction_horizon?: string
+  confidence?: number
+  price_in_penalty?: number
+  score_breakdown?: ScoreBreakdown
 }
 
 export interface MarketDocument {
@@ -181,6 +214,7 @@ export interface MarketIntelligenceDashboard {
   has_high_severity_event: boolean
   global_events: GlobalEvent[]
   event_impact_chains: EventImpactChain[]
+  event_clusters?: EventCluster[]
   map_layers?: MapLayerDefinition[]
   event_feed?: EventFeedItem[]
   corridor_strip?: CorridorRisk[]
@@ -191,6 +225,19 @@ export interface MarketIntelligenceDashboard {
   risk_warnings: string[]
   crawler_statuses: CrawlerStatus[]
   markdown_report?: string
+}
+
+export interface EventImpactAnalysis {
+  event_id: string
+  event_title?: string
+  status: 'not_started' | 'running' | 'ready' | 'partial' | 'error' | string
+  analysis_markdown?: string
+  model?: string
+  provider?: string
+  updated_at?: string
+  fallback_used?: boolean
+  error?: string
+  evidence?: MarketDocument[]
 }
 
 export interface MarketIntelligenceReport {
@@ -241,6 +288,36 @@ export const marketIntelligenceApi = {
     return ApiClient.get<GlobalEvent>(`/api/market-intelligence/global-events/${eventId}`)
   },
 
+  getDocuments(params: { hours?: number; code?: string; cluster_id?: string; source?: string; document_type?: string; limit?: number } = {}) {
+    return ApiClient.get<{ documents: MarketDocument[]; count: number }>(
+      '/api/market-intelligence/documents',
+      params
+    )
+  },
+
+  getEventClusters(hours = 36, limit = 50) {
+    return ApiClient.get<{ clusters: EventCluster[]; count: number }>(
+      '/api/market-intelligence/event-clusters',
+      { hours, limit }
+    )
+  },
+
+  analyzeEvent(eventId: string, force = false) {
+    return ApiClient.post<EventImpactAnalysis>(
+      `/api/market-intelligence/events/${eventId}/analyze`,
+      undefined,
+      {
+        params: { force },
+        timeout: 180000,
+        loadingText: '正在分析事件影响...'
+      }
+    )
+  },
+
+  getEventAnalysis(eventId: string) {
+    return ApiClient.get<EventImpactAnalysis>(`/api/market-intelligence/events/${eventId}/analysis`)
+  },
+
   getThemes() {
     return ApiClient.get<{ themes: ThemeHeatmapNode[]; count: number }>(
       '/api/market-intelligence/themes'
@@ -249,6 +326,17 @@ export const marketIntelligenceApi = {
 
   getStock(code: string) {
     return ApiClient.get<StockOpportunity>(`/api/market-intelligence/stocks/${code}`)
+  },
+
+  getStockDetail(code: string, hours = 72) {
+    return ApiClient.get<StockOpportunity>(`/api/market-intelligence/stocks/${code}/detail`, { hours })
+  },
+
+  getStockComments(code: string, hours = 72, limit = 200) {
+    return ApiClient.get<{ comments: MarketDocument[]; sentiment_summary: Record<string, any> }>(
+      `/api/market-intelligence/stocks/${code}/comments`,
+      { hours, limit }
+    )
   },
 
   getStockEvidence(code: string, hours = 36, companyName = '') {
@@ -274,5 +362,9 @@ export const marketIntelligenceApi = {
     return ApiClient.get<{ sources: CrawlerStatus[]; count: number }>(
       '/api/market-intelligence/sources/status'
     )
+  },
+
+  getMethodology() {
+    return ApiClient.get<Record<string, any>>('/api/market-intelligence/methodology')
   }
 }

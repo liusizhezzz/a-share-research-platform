@@ -54,11 +54,11 @@ class ChatDashScopeOpenAI(ChatOpenAI):
 
             # 尝试从环境变量读取 API Key
             env_api_key = os.getenv("DASHSCOPE_API_KEY")
-            logger.info(f"🔍 [DashScope初始化] 从环境变量读取 DASHSCOPE_API_KEY: {'有值' if env_api_key else '空'}")
+            logger.info(f"🔍 [DashScope初始化] DASHSCOPE_API_KEY: {'已配置' if env_api_key else '未配置'}")
 
             # 验证环境变量中的 API Key 是否有效（排除占位符）
             if env_api_key and is_valid_api_key(env_api_key):
-                logger.info(f"✅ [DashScope初始化] 环境变量中的 API Key 有效，长度: {len(env_api_key)}, 前10位: {env_api_key[:10]}...")
+                logger.info("✅ [DashScope初始化] 环境变量中的 API Key 已通过有效性检查")
                 api_key_from_kwargs = env_api_key
             elif env_api_key:
                 logger.warning(f"⚠️ [DashScope初始化] 环境变量中的 API Key 无效（可能是占位符），将被忽略")
@@ -72,7 +72,7 @@ class ChatDashScopeOpenAI(ChatOpenAI):
         # 设置 DashScope OpenAI 兼容接口的默认配置
         kwargs.setdefault("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1")
         kwargs["api_key"] = api_key_from_kwargs  # 🔥 使用验证后的 API Key
-        kwargs.setdefault("model", "qwen-turbo")
+        kwargs.setdefault("model", "qwen3.7-plus")
         kwargs.setdefault("temperature", 0.1)
         kwargs.setdefault("max_tokens", 2000)
 
@@ -93,7 +93,7 @@ class ChatDashScopeOpenAI(ChatOpenAI):
         super().__init__(**kwargs)
 
         logger.info(f"✅ 阿里百炼 OpenAI 兼容适配器初始化成功")
-        logger.info(f"   模型: {kwargs.get('model', 'qwen-turbo')}")
+        logger.info(f"   模型: {kwargs.get('model', 'qwen3.7-plus')}")
 
         # 兼容不同版本的属性名
         api_base = getattr(self, 'base_url', None) or getattr(self, 'openai_api_base', None) or kwargs.get('base_url', 'unknown')
@@ -169,6 +169,60 @@ DASHSCOPE_OPENAI_MODELS = {
         "supports_function_calling": True,
         "recommended_for": ["最新功能", "复杂推理", "专业分析"]
     },
+    "qwen3.7-max": {
+        "description": "通义千问 3.7 Max - 深度个股分析和复杂事件推演",
+        "context_length": 131072,
+        "supports_function_calling": True,
+        "recommended_for": ["深度投研", "复杂推理", "事件传导"]
+    },
+    "qwen3.7-plus": {
+        "description": "通义千问 3.7 Plus - 日报、研报摘要和常规分析",
+        "context_length": 131072,
+        "supports_function_calling": True,
+        "recommended_for": ["日报生成", "常规分析", "研报摘要"]
+    },
+    "qwen3.6-flash": {
+        "description": "通义千问 3.6 Flash - 新闻聚类、评论情绪和标签抽取",
+        "context_length": 65536,
+        "supports_function_calling": True,
+        "recommended_for": ["新闻聚类", "情绪分析", "标签抽取"]
+    },
+    "deepseek-v4-pro": {
+        "description": "DeepSeek V4 Pro - 反方风险审查和逻辑链挑战",
+        "context_length": 131072,
+        "supports_function_calling": True,
+        "recommended_for": ["风险审查", "反方推演", "逻辑挑战"]
+    },
+    "deepseek-v4-flash": {
+        "description": "DeepSeek V4 Flash - 突发事件快报",
+        "context_length": 65536,
+        "supports_function_calling": True,
+        "recommended_for": ["突发快报", "快速摘要"]
+    },
+    "kimi-k2.6": {
+        "description": "Kimi K2.6 - 长文本研报理解",
+        "context_length": 131072,
+        "supports_function_calling": True,
+        "recommended_for": ["长文档", "研报理解"]
+    },
+    "glm-5.1": {
+        "description": "GLM 5.1 - 综合文本分析",
+        "context_length": 131072,
+        "supports_function_calling": True,
+        "recommended_for": ["综合分析", "结构化抽取"]
+    },
+    "MiniMax-M2.7": {
+        "description": "MiniMax M2.7 - 文本生成和摘要",
+        "context_length": 131072,
+        "supports_function_calling": True,
+        "recommended_for": ["摘要", "文本生成"]
+    },
+    "mimo-v2.5-pro": {
+        "description": "Mimo V2.5 Pro - 备用深度分析模型",
+        "context_length": 131072,
+        "supports_function_calling": True,
+        "recommended_for": ["备用分析", "结构化推理"]
+    },
     "qwen-long": {
         "description": "通义千问 Long - 超长上下文，适合长文档处理",
         "context_length": 1000000,
@@ -184,7 +238,7 @@ def get_available_openai_models() -> Dict[str, Dict[str, Any]]:
 
 
 def create_dashscope_openai_llm(
-    model: str = "qwen-plus-latest",
+    model: str = "qwen3.7-plus",
     api_key: Optional[str] = None,
     temperature: float = 0.1,
     max_tokens: int = 2000,
@@ -202,7 +256,7 @@ def create_dashscope_openai_llm(
 
 
 def test_dashscope_openai_connection(
-    model: str = "qwen-turbo",
+    model: str = "qwen3.7-plus",
     api_key: Optional[str] = None
 ) -> bool:
     """测试 DashScope OpenAI 兼容接口连接"""

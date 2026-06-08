@@ -784,8 +784,8 @@ const generateStepsFromBackend = (backendSteps: any[]) => {
 
 // 模型设置
 const modelSettings = ref({
-  quickAnalysisModel: 'qwen-turbo',
-  deepAnalysisModel: 'qwen-max'
+  quickAnalysisModel: 'qwen3.7-plus',
+  deepAnalysisModel: 'qwen3.7-max'
 })
 
 // 可用的模型列表（从配置中获取）
@@ -1900,8 +1900,8 @@ const initializeModelSettings = async () => {
     })))
   } catch (error) {
     console.error('加载默认模型配置失败:', error)
-    modelSettings.value.quickAnalysisModel = 'qwen-turbo'
-    modelSettings.value.deepAnalysisModel = 'qwen-max'
+    modelSettings.value.quickAnalysisModel = 'qwen3.7-plus'
+    modelSettings.value.deepAnalysisModel = 'qwen3.7-max'
   }
 }
 

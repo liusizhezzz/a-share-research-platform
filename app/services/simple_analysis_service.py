@@ -315,7 +315,7 @@ def _get_default_backend_url(provider: str) -> str:
     """
     default_urls = {
         "google": "https://generativelanguage.googleapis.com/v1beta",
-        "dashscope": "https://dashscope.aliyuncs.com/api/v1",
+        "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "openai": "https://api.openai.com/v1",
         "deepseek": "https://api.deepseek.com",
         "anthropic": "https://api.anthropic.com",
@@ -342,6 +342,15 @@ def _get_default_provider_by_model(model_name: str) -> str:
         'qwen-max': 'dashscope',
         'qwen-plus-latest': 'dashscope',
         'qwen-max-longcontext': 'dashscope',
+        'qwen3.7-max': 'dashscope',
+        'qwen3.7-plus': 'dashscope',
+        'qwen3.6-flash': 'dashscope',
+        'deepseek-v4-pro': 'dashscope',
+        'deepseek-v4-flash': 'dashscope',
+        'kimi-k2.6': 'dashscope',
+        'glm-5.1': 'dashscope',
+        'MiniMax-M2.7': 'dashscope',
+        'mimo-v2.5-pro': 'dashscope',
 
         # OpenAI
         'gpt-3.5-turbo': 'openai',
@@ -517,7 +526,7 @@ def create_analysis_config(
         logger.warning(f"⚠️  无法从数据库获取 backend_url 和 API Key: {e}")
         # 2️⃣ 回退到硬编码的默认 URL，API Key 将从环境变量读取
         if llm_provider == "dashscope":
-            config["backend_url"] = "https://dashscope.aliyuncs.com/api/v1"
+            config["backend_url"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         elif llm_provider == "deepseek":
             config["backend_url"] = "https://api.deepseek.com"
         elif llm_provider == "openai":

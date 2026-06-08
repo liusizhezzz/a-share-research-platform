@@ -87,6 +87,15 @@ export const MODEL_TO_PROVIDER_MAP: Record<string, string> = {
   'qwen-max': 'dashscope',
   'qwen-plus-latest': 'dashscope',
   'qwen-max-longcontext': 'dashscope',
+  'qwen3.7-max': 'dashscope',
+  'qwen3.7-plus': 'dashscope',
+  'qwen3.6-flash': 'dashscope',
+  'deepseek-v4-pro': 'dashscope',
+  'deepseek-v4-flash': 'dashscope',
+  'kimi-k2.6': 'dashscope',
+  'glm-5.1': 'dashscope',
+  'MiniMax-M2.7': 'dashscope',
+  'mimo-v2.5-pro': 'dashscope',
 
   // OpenAI
   'gpt-3.5-turbo': 'openai',

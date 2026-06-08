@@ -38,6 +38,7 @@ from app.services.investment_daily_service import (
     _utc_now,
     get_investment_daily_service,
 )
+from app.services.llm_task_router import get_llm_task_router
 from app.utils.timezone import now_tz
 
 logger = logging.getLogger(__name__)
@@ -318,6 +319,24 @@ class RunCounter:
     message: str = ""
 
 
+def _sigmoid_score(value: float, *, midpoint: float = 0.0, scale: float = 1.0) -> float:
+    scale = scale or 1.0
+    try:
+        return 100.0 / (1.0 + math.exp(-(value - midpoint) / scale))
+    except OverflowError:
+        return 0.0 if value < midpoint else 100.0
+
+
+def _score_label(score: float) -> str:
+    if score >= 80:
+        return "强"
+    if score >= 65:
+        return "偏强"
+    if score >= 45:
+        return "中性"
+    return "弱"
+
+
 class MarketIntelligenceService:
     """Build and query automated market-intelligence snapshots."""
 
@@ -345,8 +364,14 @@ class MarketIntelligenceService:
         )
         await self.db.global_events.create_index([("published_at", -1)], background=True)
         await self.db.global_events.create_index([("severity", -1)], background=True)
+        await self.db.event_clusters.create_index([("cluster_id", 1)], unique=True, background=True)
+        await self.db.event_clusters.create_index([("last_published_at", -1)], background=True)
+        await self.db.company_exposures.create_index([("code", 1)], unique=True, background=True)
         await self.db.theme_signals.create_index(
             [("signal_date", -1), ("theme", 1)], background=True
+        )
+        await self.db.industry_signals.create_index(
+            [("signal_date", -1), ("industry", 1)], background=True
         )
         await self.db.stock_signals.create_index(
             [("signal_date", -1), ("code", 1)], background=True
@@ -359,6 +384,8 @@ class MarketIntelligenceService:
         )
         await self.db.crawler_runs.create_index([("started_at", -1)], background=True)
         await self.db.crawler_runs.create_index([("job_id", 1), ("started_at", -1)], background=True)
+        await self.db.event_impact_analyses.create_index([("event_id", 1)], unique=True, background=True)
+        await self.db.prediction_evaluations.create_index([("signal_date", -1), ("code", 1)], background=True)
         self._indexes_ready = True
 
     async def ingest_incremental(
@@ -376,6 +403,19 @@ class MarketIntelligenceService:
             hours=lookback_hours if lookback_hours is not None else 0,
             minutes=0 if lookback_hours is not None else (lookback_minutes or settings.MARKET_INTELLIGENCE_INCREMENTAL_WINDOW_MINUTES),
         )
+        if (
+            job_id == "market_data_ingest_interval"
+            and lookback_hours is None
+            and not force_refresh
+        ):
+            previous = await self.db.crawler_runs.find_one(
+                {"job_id": job_id, "status": "ready", "ended_at": {"$ne": None}},
+                sort=[("ended_at", -1)],
+            )
+            if previous and previous.get("ended_at"):
+                previous_end = _parse_dt(previous.get("ended_at"))
+                cursor_start = previous_end - timedelta(minutes=10)
+                window_start = min(window_start, cursor_start)
         if force_refresh:
             window_start = started_at - timedelta(hours=settings.MARKET_INTELLIGENCE_FORCE_LOOKBACK_HOURS)
 
@@ -432,6 +472,7 @@ class MarketIntelligenceService:
             counter("global_events").saved = saved_events
 
             signals = await self._recompute_signals(window_hours=36)
+            clusters = await self._recompute_event_clusters(window_hours=36)
             report = {
                 "job_id": job_id,
                 "started_at": started_at,
@@ -444,6 +485,7 @@ class MarketIntelligenceService:
                 "events_saved": saved_events,
                 "theme_count": len(signals.get("themes", [])),
                 "stock_count": len(signals.get("stocks", [])),
+                "cluster_count": len(clusters),
                 "sources": [c.__dict__ for c in counters.values()],
             }
         except Exception as e:
@@ -543,6 +585,7 @@ class MarketIntelligenceService:
         stock_opportunities = await self._build_stock_opportunities(documents, theme_nodes)
         industry_matrix = self._build_industry_matrix(theme_nodes)
         event_chains = self._build_event_impact_chains(events, theme_nodes, stock_opportunities)
+        event_clusters = self._build_event_clusters(documents, events)
         risk_warnings = self._build_risk_warnings(events, crawler_statuses)
         map_layers = self._build_map_layers(events, theme_nodes)
         event_feed = self._build_event_feed(events)
@@ -562,6 +605,7 @@ class MarketIntelligenceService:
             "source_coverage": source_coverage,
             "has_high_severity_event": high_event,
             "global_events": events[:80],
+            "event_clusters": event_clusters[:30],
             "event_impact_chains": event_chains[:8],
             "map_layers": map_layers,
             "event_feed": event_feed,
@@ -646,6 +690,173 @@ class MarketIntelligenceService:
                 }
         return _jsonable(list(status_by_source.values()))
 
+    async def get_documents(
+        self,
+        *,
+        hours: int = 36,
+        code: Optional[str] = None,
+        cluster_id: Optional[str] = None,
+        source: Optional[str] = None,
+        document_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        await self._ensure_indexes()
+        query: Dict[str, Any] = {"published_at": {"$gte": _utc_now() - timedelta(hours=hours)}}
+        clean = _normalize_code(code) if code else None
+        if clean:
+            query["symbols"] = clean
+        if source:
+            query["source"] = source
+        if document_type:
+            query["document_type"] = document_type
+        docs = await self.db.market_documents.find(query).sort("published_at", -1).limit(limit * 2).to_list(length=limit * 2)
+        if cluster_id:
+            clusters = self._build_event_clusters(docs, [])
+            keys = set()
+            for cluster in clusters:
+                if cluster.get("cluster_id") == cluster_id:
+                    keys.update(cluster.get("document_keys") or [])
+            docs = [doc for doc in docs if doc.get("doc_key") in keys]
+        return _jsonable(docs[:limit])
+
+    async def get_event_clusters(self, *, hours: int = 36, limit: int = 50) -> List[Dict[str, Any]]:
+        await self._ensure_indexes()
+        cutoff = _utc_now() - timedelta(hours=hours)
+        persisted = await self.db.event_clusters.find(
+            {"last_published_at": {"$gte": cutoff}}
+        ).sort("last_published_at", -1).limit(limit).to_list(length=limit)
+        if persisted:
+            return _jsonable(persisted)
+        docs = await self.db.market_documents.find({"published_at": {"$gte": cutoff}}).sort("published_at", -1).limit(400).to_list(length=400)
+        events = await self.db.global_events.find({"published_at": {"$gte": cutoff}}).sort("published_at", -1).limit(160).to_list(length=160)
+        return _jsonable(self._build_event_clusters(docs, events)[:limit])
+
+    async def get_stock_detail(self, code: str, *, hours: int = 72) -> Optional[Dict[str, Any]]:
+        await self._ensure_indexes()
+        clean = _normalize_code(code)
+        if not clean:
+            return None
+        signal = await self.get_stock_signal(clean) or {"code": clean}
+        docs = await self.get_documents(hours=hours, code=clean, limit=160)
+        comments = await self.get_stock_comments(clean, hours=hours, limit=120)
+        exposure = await self._get_company_exposure(clean, signal, docs)
+        clusters = self._build_event_clusters(docs, [])
+        signal["documents"] = docs[:80]
+        signal["event_clusters"] = clusters[:12]
+        signal["comments"] = comments.get("comments", [])
+        signal["sentiment_summary"] = comments.get("sentiment_summary", {})
+        signal["company_exposure"] = exposure
+        signal["methodology"] = self._stock_methodology()
+        return _jsonable(signal)
+
+    async def get_stock_comments(self, code: str, *, hours: int = 72, limit: int = 200) -> Dict[str, Any]:
+        await self._ensure_indexes()
+        clean = _normalize_code(code)
+        if not clean:
+            return {"comments": [], "sentiment_summary": {}}
+        cutoff = _utc_now() - timedelta(hours=hours)
+        docs = await self.db.market_documents.find(
+            {"symbols": clean, "document_type": "social_comment", "published_at": {"$gte": cutoff}}
+        ).sort("published_at", -1).limit(limit).to_list(length=limit)
+        if not docs:
+            docs = await self.db.social_media_messages.find(
+                {"symbol": clean, "publish_time": {"$gte": cutoff}}
+            ).sort("publish_time", -1).limit(limit).to_list(length=limit)
+        comments = [_jsonable(doc) for doc in docs]
+        scores = [_safe_float(doc.get("sentiment_score")) for doc in docs]
+        pos = sum(1 for s in scores if s >= 0.25)
+        neg = sum(1 for s in scores if s <= -0.25)
+        neu = max(0, len(scores) - pos - neg)
+        avg = sum(scores) / max(len(scores), 1)
+        dispersion = (sum((s - avg) ** 2 for s in scores) / max(len(scores), 1)) ** 0.5 if scores else 0
+        return _jsonable({
+            "comments": comments,
+            "sentiment_summary": {
+                "count": len(comments),
+                "positive": pos,
+                "neutral": neu,
+                "negative": neg,
+                "avg_sentiment": round(avg, 3),
+                "disagreement": round(dispersion, 3),
+                "formula": "avg_sentiment=mean(sentiment_score); disagreement=stddev(sentiment_score)",
+            },
+        })
+
+    async def get_methodology(self) -> Dict[str, Any]:
+        router = get_llm_task_router()
+        return {
+            "llm_policy": router.public_policy(),
+            "stock_prediction_formula": self._stock_methodology(),
+            "market_temperature_formula": {
+                "formula": "25%市场广度 + 20%成交/换手 + 20%主题热度 + 15%新闻舆情 + 15%资金确认 - 15%全球风险",
+                "normalization_method": "各项先映射到0-100，再按权重加权；风险项为扣分项",
+            },
+            "global_risk_formula": {
+                "formula": "50%国家/区域风险 + 30%地理事件汇聚 + 20%基础设施/供应链风险 + 突发新闻加成",
+                "normalization_method": "事件严重度、来源影响力、关键词强度和地理通道暴露综合",
+            },
+            "theme_formula": {
+                "formula": "sigmoid(0.32*热度 + 0.18*情绪 + 0.18*来源影响力 + 0.14*新颖度 + 0.18*事件严重度)",
+                "normalization_method": "sigmoid标准化，避免原始数量导致全100",
+            },
+        }
+
+    async def analyze_event_impact(self, event_id: str, *, force: bool = False) -> Dict[str, Any]:
+        await self._ensure_indexes()
+        existing = await self.db.event_impact_analyses.find_one({"event_id": event_id})
+        if existing and not force and existing.get("status") == "ready":
+            return _jsonable(existing)
+        event = await self.get_global_event(event_id)
+        if not event:
+            raise ValueError("global event not found")
+        await self.db.event_impact_analyses.update_one(
+            {"event_id": event_id},
+            {"$set": {
+                "event_id": event_id,
+                "status": "running",
+                "updated_at": _utc_now(),
+                "event_title": event.get("title"),
+            }},
+            upsert=True,
+        )
+        docs = await self.db.market_documents.find(
+            {"$or": [
+                {"doc_key": event.get("document_key")},
+                {"themes": {"$in": event.get("mapped_themes") or []}},
+            ]}
+        ).sort("published_at", -1).limit(60).to_list(length=60)
+        prompt = self._event_analysis_prompt(event, docs)
+        llm_result = await get_llm_task_router().chat_jsonish(
+            task_type="event_impact",
+            messages=[
+                {"role": "system", "content": "你是生产级投行策略分析师。输出中文，结构清晰，必须给出事件到A股的传导链、受益受损行业、候选股票、证据和失效条件。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.15,
+        )
+        fallback = self._fallback_event_analysis(event, docs)
+        analysis = {
+            "event_id": event_id,
+            "event_title": event.get("title"),
+            "status": "ready" if llm_result.get("status") in {"ready", "skipped"} else "partial",
+            "updated_at": _utc_now(),
+            "model": llm_result.get("model"),
+            "provider": llm_result.get("provider"),
+            "analysis_markdown": llm_result.get("content") or fallback,
+            "fallback_used": not bool(llm_result.get("content")),
+            "usage": llm_result.get("usage") or {},
+            "error": llm_result.get("error"),
+            "event": event,
+            "evidence": [_jsonable(doc) for doc in docs[:20]],
+        }
+        await self.db.event_impact_analyses.replace_one({"event_id": event_id}, analysis, upsert=True)
+        return _jsonable(analysis)
+
+    async def get_event_analysis(self, event_id: str) -> Optional[Dict[str, Any]]:
+        await self._ensure_indexes()
+        doc = await self.db.event_impact_analyses.find_one({"event_id": event_id})
+        return _jsonable(doc) if doc else None
+
     async def run_pre_market_enrichment(self) -> Dict[str, Any]:
         return await self.ingest_incremental(
             job_id="pre_market_enrichment",
@@ -676,6 +887,224 @@ class MarketIntelligenceService:
             {"$set": {"event_flash_key": marker}},
         )
         return await self.get_latest_report()
+
+    async def _recompute_event_clusters(self, *, window_hours: int) -> List[Dict[str, Any]]:
+        cutoff = _utc_now() - timedelta(hours=window_hours)
+        docs = await self.db.market_documents.find(
+            {"published_at": {"$gte": cutoff}}
+        ).sort("published_at", -1).limit(600).to_list(length=600)
+        events = await self.db.global_events.find(
+            {"published_at": {"$gte": cutoff}}
+        ).sort("published_at", -1).limit(160).to_list(length=160)
+        clusters = self._build_event_clusters(docs, events)
+        for cluster in clusters:
+            await self.db.event_clusters.replace_one(
+                {"cluster_id": cluster["cluster_id"]},
+                {**cluster, "updated_at": _utc_now()},
+                upsert=True,
+            )
+        return clusters
+
+    def _cluster_key_for_doc(self, doc: Dict[str, Any]) -> str:
+        text = f"{doc.get('title', '')} {doc.get('content', '')}"
+        matched_themes = doc.get("themes") or self._match_themes(text)
+        symbols = doc.get("symbols") or []
+        important_words = []
+        for word in sorted(set(re.findall(r"[\u4e00-\u9fa5A-Za-z0-9]{2,}", text))):
+            if word in HIGH_SEVERITY_WORDS or any(word in keywords for keywords in THEME_KEYWORDS.values()):
+                important_words.append(word)
+        if symbols:
+            basis = f"stock:{symbols[0]}:{','.join(matched_themes[:2])}"
+        elif matched_themes:
+            basis = f"theme:{matched_themes[0]}:{','.join(important_words[:3])}"
+        else:
+            normalized = re.sub(r"\s+", "", str(doc.get("title") or ""))[:28]
+            basis = f"title:{normalized}"
+        return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:18]
+
+    def _build_event_clusters(self, documents: List[Dict[str, Any]], events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for doc in documents:
+            title = str(doc.get("title") or "").strip()
+            if not title:
+                continue
+            key = self._cluster_key_for_doc(doc)
+            cluster = grouped.setdefault(key, {
+                "cluster_id": key,
+                "title": title,
+                "summary": doc.get("summary") or doc.get("content", "")[:180],
+                "document_keys": [],
+                "documents": [],
+                "sources": set(),
+                "themes": set(),
+                "symbols": set(),
+                "first_published_at": _parse_dt(doc.get("published_at")),
+                "last_published_at": _parse_dt(doc.get("published_at")),
+                "sentiment_total": 0.0,
+                "influence_total": 0.0,
+                "event_count": 0,
+            })
+            published = _parse_dt(doc.get("published_at"))
+            cluster["document_keys"].append(doc.get("doc_key"))
+            if len(cluster["documents"]) < 8:
+                cluster["documents"].append(_jsonable(doc))
+            cluster["sources"].add(str(doc.get("source") or doc.get("data_source") or "未知"))
+            cluster["themes"].update(doc.get("themes") or [])
+            cluster["symbols"].update(doc.get("symbols") or [])
+            cluster["first_published_at"] = min(cluster["first_published_at"], published)
+            cluster["last_published_at"] = max(cluster["last_published_at"], published)
+            cluster["sentiment_total"] += _safe_float(doc.get("sentiment_score"))
+            cluster["influence_total"] += _safe_float(doc.get("influence_score"))
+
+        for event in events:
+            text = f"{event.get('title', '')} {event.get('summary', '')}"
+            pseudo_doc = {
+                "title": event.get("title"),
+                "content": event.get("summary"),
+                "themes": event.get("mapped_themes") or [],
+                "symbols": event.get("mapped_stocks") or [],
+            }
+            key = self._cluster_key_for_doc(pseudo_doc)
+            cluster = grouped.setdefault(key, {
+                "cluster_id": key,
+                "title": event.get("title") or event.get("location_name") or "全球事件",
+                "summary": event.get("summary") or text[:180],
+                "document_keys": [],
+                "documents": [],
+                "sources": set(),
+                "themes": set(),
+                "symbols": set(),
+                "first_published_at": _parse_dt(event.get("published_at")),
+                "last_published_at": _parse_dt(event.get("published_at")),
+                "sentiment_total": 0.0,
+                "influence_total": 0.0,
+                "event_count": 0,
+            })
+            published = _parse_dt(event.get("published_at"))
+            cluster["event_count"] += 1
+            cluster["sources"].add(str(event.get("source") or "全球事件"))
+            cluster["themes"].update(event.get("mapped_themes") or [])
+            cluster["symbols"].update(event.get("mapped_stocks") or [])
+            cluster["first_published_at"] = min(cluster["first_published_at"], published)
+            cluster["last_published_at"] = max(cluster["last_published_at"], published)
+            cluster["influence_total"] += _safe_float(event.get("severity"))
+
+        result: List[Dict[str, Any]] = []
+        for cluster in grouped.values():
+            doc_count = len(cluster["document_keys"])
+            total_items = doc_count + cluster["event_count"]
+            if total_items <= 0:
+                continue
+            avg_sentiment = cluster["sentiment_total"] / max(doc_count, 1)
+            influence = cluster["influence_total"] / max(total_items, 1)
+            heat_score = _sigmoid_score(total_items, midpoint=3, scale=2.2)
+            impact_score = round(heat_score * 0.45 + min(100, influence) * 0.35 + (50 + avg_sentiment * 50) * 0.20, 2)
+            result.append({
+                "cluster_id": cluster["cluster_id"],
+                "title": cluster["title"],
+                "summary": cluster["summary"],
+                "document_keys": [key for key in cluster["document_keys"] if key],
+                "documents": cluster["documents"],
+                "document_count": doc_count,
+                "event_count": cluster["event_count"],
+                "source_count": len(cluster["sources"]),
+                "sources": sorted(cluster["sources"]),
+                "themes": sorted(cluster["themes"]),
+                "symbols": sorted(cluster["symbols"]),
+                "first_published_at": cluster["first_published_at"],
+                "last_published_at": cluster["last_published_at"],
+                "avg_sentiment": round(avg_sentiment, 3),
+                "impact_score": impact_score,
+                "score_breakdown": {
+                    "formula": "45%事件/新闻热度 + 35%来源影响力/事件严重度 + 20%情绪方向",
+                    "input_values": {
+                        "total_items": total_items,
+                        "avg_influence_or_severity": round(influence, 2),
+                        "avg_sentiment": round(avg_sentiment, 3),
+                    },
+                    "normalization_method": "热度使用sigmoid标准化，影响力和情绪映射到0-100后加权",
+                },
+            })
+        result.sort(key=lambda item: (item["impact_score"], _parse_dt(item["last_published_at"])), reverse=True)
+        return result
+
+    async def _get_company_exposure(self, code: str, signal: Dict[str, Any], docs: List[Dict[str, Any]]) -> Dict[str, Any]:
+        existing = await self.db.company_exposures.find_one({"code": code})
+        if existing:
+            return _jsonable(existing)
+        text = " ".join([str(signal.get("industry") or ""), str(signal.get("theme") or "")] + [str(doc.get("title") or "") for doc in docs[:20]])
+        themes = set(signal.get("theme") for _ in [0] if signal.get("theme"))
+        for doc in docs:
+            themes.update(doc.get("themes") or [])
+        export_markets: List[str] = []
+        upstream: List[str] = []
+        downstream: List[str] = []
+        chokepoints: List[str] = []
+        if any(theme in themes for theme in ["消费出海", "新能源", "半导体", "AI算力"]):
+            export_markets.extend(["美国", "欧洲", "东南亚"])
+            chokepoints.extend(["马六甲海峡", "红海/苏伊士", "巴拿马运河"])
+        if "资源通胀" in themes or any(word in text for word in ["油", "铜", "铝", "煤", "锂"]):
+            upstream.extend(["能源", "有色金属", "化工原料"])
+            chokepoints.append("霍尔木兹海峡")
+        if "AI算力" in themes or "半导体" in themes:
+            upstream.extend(["GPU/ASIC", "光模块", "PCB", "设备材料"])
+            downstream.extend(["云厂商", "服务器", "数据中心"])
+        if "机器人" in themes:
+            upstream.extend(["减速器", "伺服系统", "传感器"])
+            downstream.extend(["制造业自动化", "人形机器人整机"])
+        exposure = {
+            "code": code,
+            "updated_at": _utc_now(),
+            "export_markets": sorted(set(export_markets)) or ["待从年报/公告补全"],
+            "upstream": sorted(set(upstream)) or ["待从研报/公告补全"],
+            "downstream": sorted(set(downstream)) or ["待从研报/公告补全"],
+            "critical_chokepoints": sorted(set(chokepoints)) or ["暂无明确通道暴露"],
+            "confidence": 0.46 if not docs else 0.62,
+            "method": "基于主题、行业、新闻/研报关键词的第一版映射；后续可用年报主营地区和客户数据校准",
+        }
+        await self.db.company_exposures.replace_one({"code": code}, exposure, upsert=True)
+        return _jsonable(exposure)
+
+    def _stock_methodology(self) -> Dict[str, Any]:
+        return {
+            "formula": "20%量化信号 + 18%主题/事件暴露 + 14%新闻情绪 + 10%民众评论 + 15%资金确认 + 12%量价结构 + 8%基本面兑现 + 8%供应链/出口暴露 - 风险反噬 - price-in惩罚",
+            "normalization_method": "每个因子先映射到0-100；数量类因子使用sigmoid或百分位，情绪类因子从[-1,1]映射到[0,100]",
+            "prediction_horizon": "下一次开盘至未来1-3个交易日",
+            "not_buy_rule": "已大涨或涨停股票只有在新增催化、资金确认且price-in惩罚较低时保留为候选",
+        }
+
+    def _event_analysis_prompt(self, event: Dict[str, Any], docs: List[Dict[str, Any]]) -> str:
+        evidence_lines = []
+        for doc in docs[:18]:
+            evidence_lines.append(
+                f"- [{doc.get('source')}] {doc.get('title')} ({_jsonable(doc.get('published_at'))})"
+            )
+        return (
+            f"事件: {event.get('title')}\n"
+            f"地点: {event.get('location_name') or event.get('region')}\n"
+            f"严重度: {event.get('severity')}\n"
+            f"影响资产: {', '.join(event.get('affected_assets') or [])}\n"
+            f"传导渠道: {', '.join(event.get('transmission_channels') or [])}\n"
+            f"A股主题: {', '.join(event.get('mapped_themes') or [])}\n\n"
+            "证据:\n" + "\n".join(evidence_lines) + "\n\n"
+            "请按以下结构输出：1事件判断；2宏观变量；3产业链传导；4受益/受损行业；5A股个股观察；6是否price in；7交易确认条件；8失效条件。"
+        )
+
+    def _fallback_event_analysis(self, event: Dict[str, Any], docs: List[Dict[str, Any]]) -> str:
+        themes = "、".join(event.get("mapped_themes") or []) or "等待主题映射"
+        assets = "、".join(event.get("affected_assets") or []) or "等待资产映射"
+        channels = "、".join(event.get("transmission_channels") or []) or "等待传导渠道确认"
+        evidence = "\n".join(f"- {doc.get('title')}（{doc.get('source')}）" for doc in docs[:8]) or "- 暂无更多证据"
+        return (
+            f"## 事件判断\n{event.get('title')}\n\n"
+            f"## 资产与变量\n{assets}\n\n"
+            f"## 传导渠道\n{channels}\n\n"
+            f"## A股主题\n{themes}\n\n"
+            "## 个股映射\n等待资金、量价、公告和研报进一步确认。\n\n"
+            "## 证据\n"
+            f"{evidence}\n\n"
+            "## 失效条件\n若后续新闻降温、相关商品/汇率未响应、A股映射行业无资金确认，则按低置信度处理。"
+        )
 
     async def _fetch_research_reports(self, codes: List[str]) -> List[Dict[str, Any]]:
         reports: List[Dict[str, Any]] = []
@@ -1250,24 +1679,45 @@ class MarketIntelligenceService:
             related_events = [event for event in events if theme in event.get("mapped_themes", [])]
             if not related_docs and not related_events:
                 continue
-            heat = len(related_docs) * 8 + len(related_events) * 12
-            sentiment = sum(_safe_float(doc.get("sentiment_score")) for doc in related_docs)
-            influence = sum(_safe_float(doc.get("influence_score")) for doc in related_docs)
+            heat_raw = len(related_docs) + len(related_events) * 1.6
+            heat = _sigmoid_score(heat_raw, midpoint=4.0, scale=3.0)
+            sentiment_avg = sum(_safe_float(doc.get("sentiment_score")) for doc in related_docs) / max(len(related_docs), 1)
+            sentiment_component = max(0.0, min(100.0, 50 + sentiment_avg * 50))
+            influence_avg = sum(_safe_float(doc.get("influence_score")) for doc in related_docs) / max(len(related_docs), 1)
             severity = max([_safe_float(e.get("severity")) for e in related_events] or [0])
-            novelty = min(20, len({doc.get("source") for doc in related_docs}) * 4 + len(related_events) * 3)
-            score = min(100.0, max(0.0, heat + sentiment * 6 + influence * 0.08 + novelty + severity * 0.12))
+            novelty = _sigmoid_score(len({doc.get("source") for doc in related_docs}) + len(related_events), midpoint=2.0, scale=1.8)
+            score = max(0.0, min(100.0, (
+                heat * 0.32
+                + sentiment_component * 0.18
+                + min(100, influence_avg) * 0.18
+                + novelty * 0.14
+                + severity * 0.18
+            )))
             nodes.append({
                 "name": theme,
                 "value": round(max(8.0, score), 2),
                 "score": round(score, 2),
                 "heat": round(heat, 2),
-                "sentiment_score": round(sentiment / max(len(related_docs), 1), 3),
+                "sentiment_score": round(sentiment_avg, 3),
                 "news_count": len(related_docs),
                 "event_count": len(related_events),
                 "risk_score": round(severity, 2),
-                "trend": "up" if sentiment >= 0 else "watch",
+                "trend": "up" if sentiment_avg >= 0.12 else "down" if sentiment_avg <= -0.12 else "watch",
                 "keywords": keywords[:8],
                 "headlines": [doc.get("title") for doc in related_docs[:4]],
+                "score_breakdown": {
+                    "formula": "32%热度 + 18%情绪 + 18%来源影响力 + 14%新颖度 + 18%事件严重度",
+                    "input_values": {
+                        "doc_count": len(related_docs),
+                        "event_count": len(related_events),
+                        "heat_component": round(heat, 2),
+                        "sentiment_component": round(sentiment_component, 2),
+                        "influence_component": round(min(100, influence_avg), 2),
+                        "novelty_component": round(novelty, 2),
+                        "severity_component": round(severity, 2),
+                    },
+                    "normalization_method": "热度和新颖度使用sigmoid标准化，避免数量堆积直接打满100",
+                },
             })
         nodes.sort(key=lambda item: item["score"], reverse=True)
         return nodes[:18]
@@ -1285,7 +1735,7 @@ class MarketIntelligenceService:
                     "name": "",
                     "industry": "",
                     "theme": "",
-                    "score": 0.0,
+                    "raw_evidence_score": 0.0,
                     "news_count": 0,
                     "comment_count": 0,
                     "research_count": 0,
@@ -1305,9 +1755,9 @@ class MarketIntelligenceService:
                 item["announcement_count"] += 1 if doc_type == "announcement" else 0
                 item["quant_count"] += 1 if doc_type == "quant_signal" else 0
                 item["sentiment_score"] += _safe_float(doc.get("sentiment_score"))
-                item["score"] += 8 + _safe_float(doc.get("influence_score")) * 0.08
+                item["raw_evidence_score"] += 1 + _safe_float(doc.get("influence_score")) / 100
                 for theme in doc.get("themes", []):
-                    item["score"] += theme_score.get(theme, 0) * 0.06
+                    item["raw_evidence_score"] += theme_score.get(theme, 0) / 100
                     if not item["theme"]:
                         item["theme"] = theme
                 if len(item["headlines"]) < 4:
@@ -1334,9 +1784,8 @@ class MarketIntelligenceService:
                 by_code[code]["pct_chg"] = pct
                 by_code[code]["amount"] = amount
                 by_code[code]["price"] = _safe_float(quote.get("price") or quote.get("close"))
-                by_code[code]["price_score"] = max(0, min(20, pct + 8))
-                by_code[code]["funds_score"] = max(0, min(20, amount / 1_000_000_000))
-                by_code[code]["score"] += by_code[code]["price_score"] + by_code[code]["funds_score"]
+                by_code[code]["price_score"] = round(max(0, min(100, 50 + pct * 6 - max(0, pct - 7) * 10)), 2)
+                by_code[code]["funds_score"] = round(_sigmoid_score(amount / 1_000_000_000, midpoint=3.0, scale=2.5), 2)
 
         result = []
         for item in by_code.values():
@@ -1349,10 +1798,48 @@ class MarketIntelligenceService:
                 1,
             )
             item["sentiment_score"] = round(item["sentiment_score"] / total_docs, 3)
+            news_component = _sigmoid_score(item["news_count"] + item["research_count"] * 1.5 + item["announcement_count"] * 1.8, midpoint=4.0, scale=3.0)
+            social_component = _sigmoid_score(item["comment_count"], midpoint=12.0, scale=10.0)
+            sentiment_component = max(0.0, min(100.0, 50 + item["sentiment_score"] * 50))
+            theme_component = theme_score.get(item.get("theme") or "", 45)
+            quant_component = 70 if item["quant_count"] else 42
+            supply_component = 56 if item.get("theme") in {"消费出海", "新能源", "半导体", "AI算力"} else 45
+            price_in_penalty = max(0.0, (_safe_float(item.get("pct_chg")) - 6.5) * 8)
             if item["sentiment_score"] < -0.3:
-                item["risk_score"] += 12
-            item["score"] = round(max(0, min(100, item["score"] - item["risk_score"])), 2)
-            item["signal_strength"] = round(min(100, item["score"] + abs(item["sentiment_score"]) * 10), 2)
+                item["risk_score"] += 15
+            score = (
+                quant_component * 0.20
+                + theme_component * 0.18
+                + sentiment_component * 0.14
+                + social_component * 0.10
+                + _safe_float(item.get("funds_score")) * 0.15
+                + _safe_float(item.get("price_score")) * 0.12
+                + news_component * 0.08
+                + supply_component * 0.08
+                - _safe_float(item["risk_score"])
+                - price_in_penalty
+            )
+            item["price_in_penalty"] = round(price_in_penalty, 2)
+            item["score"] = round(max(0, min(100, score)), 2)
+            item["signal_strength"] = round(max(0, min(100, item["score"] * 0.68 + _safe_float(item.get("funds_score")) * 0.18 + _safe_float(item.get("price_score")) * 0.14)), 2)
+            item["prediction_horizon"] = "下一次开盘至未来1-3个交易日"
+            item["confidence"] = round(max(0.2, min(0.92, (total_docs / 18) * 0.35 + item["score"] / 100 * 0.45 + (1 if item["quant_count"] else 0) * 0.12)), 3)
+            item["score_breakdown"] = {
+                "formula": self._stock_methodology()["formula"],
+                "input_values": {
+                    "quant_component": round(quant_component, 2),
+                    "theme_component": round(theme_component, 2),
+                    "sentiment_component": round(sentiment_component, 2),
+                    "social_component": round(social_component, 2),
+                    "funds_score": item.get("funds_score", 0),
+                    "price_score": item.get("price_score", 0),
+                    "news_component": round(news_component, 2),
+                    "supply_component": supply_component,
+                    "risk_score": round(_safe_float(item["risk_score"]), 2),
+                    "price_in_penalty": round(price_in_penalty, 2),
+                },
+                "normalization_method": self._stock_methodology()["normalization_method"],
+            }
             if not item["name"]:
                 item["name"] = item["code"]
             result.append(item)
@@ -1370,9 +1857,28 @@ class MarketIntelligenceService:
                     value = 50 + _safe_float(theme.get("sentiment_score")) * 50
                 elif dim == "事件风险":
                     value = _safe_float(theme.get("risk_score"))
-                elif dim in {"资金确认", "量价共振", "基本面"}:
-                    value = max(15, base * (0.55 + idx * 0.05))
-                rows.append({"theme": theme["name"], "dimension": dim, "value": round(min(100, max(0, value)), 2)})
+                elif dim == "资金确认":
+                    value = _sigmoid_score(_safe_float(theme.get("news_count")) + base / 20, midpoint=6, scale=3.5)
+                elif dim == "量价共振":
+                    value = max(0, min(100, base * 0.55 + _safe_float(theme.get("heat")) * 0.22))
+                elif dim == "基本面":
+                    value = max(0, min(100, 42 + len(theme.get("keywords") or []) * 2 + (8 if theme.get("event_count") else 0)))
+                rows.append({
+                    "theme": theme["name"],
+                    "dimension": dim,
+                    "value": round(min(100, max(0, value)), 2),
+                    "score_breakdown": {
+                        "formula": f"{dim}按主题真实新闻、事件、情绪、热度或基本面代理变量计算",
+                        "input_values": {
+                            "theme_score": base,
+                            "news_count": theme.get("news_count", 0),
+                            "event_count": theme.get("event_count", 0),
+                            "sentiment_score": theme.get("sentiment_score", 0),
+                            "heat": theme.get("heat", 0),
+                        },
+                        "normalization_method": "数量类用sigmoid，情绪类从[-1,1]映射到[0,100]，不使用固定档位造数",
+                    },
+                })
         return rows
 
     def _build_event_impact_chains(self, events: List[Dict[str, Any]], themes: List[Dict[str, Any]], stocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1427,6 +1933,11 @@ class MarketIntelligenceService:
             "ok_count": ok_count,
             "total": total,
             "label": "健康" if score >= 80 else "部分异常" if score >= 50 else "不足",
+            "score_breakdown": {
+                "formula": "ok_count / total * 100",
+                "input_values": {"ok_count": ok_count, "total": total},
+                "normalization_method": "核心源15分钟内成功抓取视为ok",
+            },
         }
 
     def _build_dashboard_summary(self, themes: List[Dict[str, Any]], stocks: List[Dict[str, Any]], events: List[Dict[str, Any]], risks: List[str]) -> str:

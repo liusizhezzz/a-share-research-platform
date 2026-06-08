@@ -421,16 +421,16 @@ class ConfigService:
                 ),
                 LLMConfig(
                     provider=ModelProvider.QWEN,
-                    model_name="qwen-turbo",
+                    model_name="qwen3.7-plus",
                     api_key="your-qwen-api-key",
                     api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
-                    max_tokens=4000,
-                    temperature=0.7,
-                    enabled=False,
-                    description="阿里云通义千问模型"
+                    max_tokens=20000,
+                    temperature=0.2,
+                    enabled=True,
+                    description="阿里云百炼 Qwen Plus，默认快速/报告模型"
                 )
             ],
-            default_llm="glm-4",
+            default_llm="qwen3.7-plus",
             data_source_configs=[
                 DataSourceConfig(
                     name="AKShare",
@@ -2376,6 +2376,87 @@ class ConfigService:
                 "provider_name": "通义千问",
                 "models": [
                     {
+                        "name": "qwen3.7-max",
+                        "display_name": "Qwen 3.7 Max - 深度投研旗舰",
+                        "input_price_per_1k": 0.02,
+                        "output_price_per_1k": 0.06,
+                        "context_length": 131072,
+                        "currency": "CNY",
+                        "description": "适合复杂事件推演、深度个股分析和多轮投研推理"
+                    },
+                    {
+                        "name": "qwen3.7-plus",
+                        "display_name": "Qwen 3.7 Plus - 日报与快速分析",
+                        "input_price_per_1k": 0.004,
+                        "output_price_per_1k": 0.012,
+                        "context_length": 131072,
+                        "currency": "CNY",
+                        "description": "适合日报、市场情报、研报摘要和候选股预分析"
+                    },
+                    {
+                        "name": "qwen3.6-flash",
+                        "display_name": "Qwen 3.6 Flash - 新闻评论处理",
+                        "input_price_per_1k": 0.0008,
+                        "output_price_per_1k": 0.002,
+                        "context_length": 32768,
+                        "currency": "CNY",
+                        "description": "适合新闻聚类、评论情绪、标签抽取等高频任务"
+                    },
+                    {
+                        "name": "deepseek-v4-pro",
+                        "display_name": "DeepSeek V4 Pro - 风险反证",
+                        "input_price_per_1k": 0.01,
+                        "output_price_per_1k": 0.03,
+                        "context_length": 131072,
+                        "currency": "CNY",
+                        "description": "适合反方审查、风险反证和复杂逻辑链挑战"
+                    },
+                    {
+                        "name": "deepseek-v4-flash",
+                        "display_name": "DeepSeek V4 Flash - 突发快报",
+                        "input_price_per_1k": 0.001,
+                        "output_price_per_1k": 0.003,
+                        "context_length": 65536,
+                        "currency": "CNY",
+                        "description": "适合突发事件快速卡片和轻量分析"
+                    },
+                    {
+                        "name": "kimi-k2.6",
+                        "display_name": "Kimi K2.6 - 长文档研读",
+                        "input_price_per_1k": 0.006,
+                        "output_price_per_1k": 0.018,
+                        "context_length": 131072,
+                        "currency": "CNY",
+                        "description": "适合长研报、公告和跨文档摘要"
+                    },
+                    {
+                        "name": "glm-5.1",
+                        "display_name": "GLM 5.1 - 中文结构推理",
+                        "input_price_per_1k": 0.006,
+                        "output_price_per_1k": 0.018,
+                        "context_length": 131072,
+                        "currency": "CNY",
+                        "description": "适合中文结构化推理和行业链拆解"
+                    },
+                    {
+                        "name": "MiniMax-M2.7",
+                        "display_name": "MiniMax M2.7 - 长文本分析",
+                        "input_price_per_1k": 0.006,
+                        "output_price_per_1k": 0.018,
+                        "context_length": 131072,
+                        "currency": "CNY",
+                        "description": "适合多来源材料归纳和报告扩写"
+                    },
+                    {
+                        "name": "mimo-v2.5-pro",
+                        "display_name": "Mimo V2.5 Pro - 多角度审查",
+                        "input_price_per_1k": 0.006,
+                        "output_price_per_1k": 0.018,
+                        "context_length": 65536,
+                        "currency": "CNY",
+                        "description": "适合候选股多角度复核"
+                    },
+                    {
                         "name": "qwen-turbo",
                         "display_name": "Qwen Turbo - 快速经济 (1M上下文)",
                         "input_price_per_1k": 0.0003,
@@ -3611,7 +3692,7 @@ class ConfigService:
 
             # 如果没有指定模型，使用默认模型
             if not model_name:
-                model_name = "qwen-turbo"
+                model_name = "qwen3.7-plus"
                 logger.info(f"⚠️ 未指定模型，使用默认模型: {model_name}")
 
             logger.info(f"🔍 [DashScope 测试] 使用模型: {model_name}")

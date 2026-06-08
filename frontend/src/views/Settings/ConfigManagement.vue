@@ -544,7 +544,7 @@
                   </div>
                 </el-option>
               </el-select>
-              <div class="setting-description">用于市场分析、新闻分析、基本面分析、研究员等，响应速度快（推荐：qwen-turbo）</div>
+              <div class="setting-description">用于市场分析、新闻分析、基本面分析、研究员等，响应速度快（推荐：qwen3.7-plus）</div>
             </el-form-item>
 
             <el-form-item label="深度决策模型">
@@ -566,7 +566,7 @@
                   </div>
                 </el-option>
               </el-select>
-              <div class="setting-description">用于研究管理者综合决策、风险管理者最终评估，推理能力强（推荐：qwen-max）</div>
+              <div class="setting-description">用于研究管理者综合决策、风险管理者最终评估，推理能力强（推荐：qwen3.7-max）</div>
             </el-form-item>
 
             <el-form-item label="启用成本跟踪">
@@ -1434,8 +1434,8 @@ const loadSystemSettings = async () => {
     ])
     // 确保有默认值
     systemSettings.value = {
-      quick_analysis_model: 'qwen-turbo',
-      deep_analysis_model: 'qwen-max',
+      quick_analysis_model: 'qwen3.7-plus',
+      deep_analysis_model: 'qwen3.7-max',
       default_analysis_timeout: 300,
       enable_cache: true,
       cache_ttl: 3600,

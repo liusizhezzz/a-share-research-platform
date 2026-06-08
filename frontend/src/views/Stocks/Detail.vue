@@ -234,6 +234,82 @@
           </div>
         </el-card>
 
+        <el-card shadow="hover" class="mi-card">
+          <template #header>
+            <div class="card-hd">
+              <div>市场情报证据池</div>
+              <el-button text size="small" :loading="marketIntelLoading" @click="fetchMarketIntelligence">刷新</el-button>
+            </div>
+          </template>
+          <el-skeleton v-if="marketIntelLoading && !marketIntel" :rows="6" animated />
+          <template v-else-if="marketIntel">
+            <div class="mi-score-row">
+              <div class="mi-score">
+                <span>预测分</span>
+                <b>{{ fmtScore(marketIntel.score) }}</b>
+              </div>
+              <div class="mi-score">
+                <span>确认分</span>
+                <b>{{ fmtScore(marketIntel.signal_strength) }}</b>
+              </div>
+              <div class="mi-score">
+                <span>评论情绪</span>
+                <b>{{ fmtScore(marketIntel.sentiment_summary?.average_sentiment) }}</b>
+              </div>
+              <div class="mi-score">
+                <span>分歧度</span>
+                <b>{{ fmtScore(marketIntel.sentiment_summary?.disagreement) }}</b>
+              </div>
+            </div>
+
+            <div class="mi-section">
+              <div class="mi-section-title">事件簇</div>
+              <div v-if="marketIntel.event_clusters?.length" class="mi-cluster-list">
+                <div v-for="cluster in marketIntel.event_clusters.slice(0, 5)" :key="cluster.cluster_id" class="mi-cluster">
+                  <div class="mi-cluster-title">{{ cluster.title }}</div>
+                  <div class="mi-muted">
+                    {{ cluster.document_count || 0 }} 条 · {{ (cluster.sources || []).slice(0, 3).join(' / ') || '多源' }} ·
+                    {{ formatNewsTime(cluster.last_published_at) }}
+                  </div>
+                </div>
+              </div>
+              <el-empty v-else description="暂无事件簇" :image-size="70" />
+            </div>
+
+            <div class="mi-section">
+              <div class="mi-section-title">民众评论</div>
+              <div v-if="marketIntel.comments?.length" class="mi-comment-list">
+                <div v-for="comment in marketIntel.comments.slice(0, 8)" :key="comment.doc_key || comment.title" class="mi-comment">
+                  <el-tag size="small" :type="sentimentType(comment.sentiment_score)" effect="plain">
+                    {{ fmtScore(comment.sentiment_score) }}
+                  </el-tag>
+                  <span>{{ comment.content || comment.summary || comment.title }}</span>
+                </div>
+              </div>
+              <el-empty v-else description="暂无评论" :image-size="70" />
+            </div>
+
+            <div class="mi-section">
+              <div class="mi-section-title">新闻 / 公告 / 研报证据</div>
+              <div v-if="marketIntel.documents?.length" class="mi-document-list">
+                <a
+                  v-for="doc in marketIntel.documents.slice(0, 8)"
+                  :key="doc.doc_key || doc.title"
+                  class="mi-document"
+                  :href="doc.url || '#'"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <el-tag size="small" effect="plain">{{ doc.document_type || doc.source || '证据' }}</el-tag>
+                  <span>{{ doc.title }}</span>
+                  <em>{{ formatNewsTime(doc.published_at) }}</em>
+                </a>
+              </div>
+              <el-empty v-else description="暂无证据" :image-size="70" />
+            </div>
+          </template>
+          <el-empty v-else description="暂无市场情报数据" />
+        </el-card>
 
 
 
@@ -366,6 +442,7 @@ import { analysisApi } from '@/api/analysis'
 import { ApiClient } from '@/api/request'
 import { stockSyncApi } from '@/api/stockSync'
 import { clearAllCache } from '@/api/cache'
+import { marketIntelligenceApi, type StockOpportunity } from '@/api/marketIntelligence'
 import { use as echartsUse } from 'echarts/core'
 import { CandlestickChart } from 'echarts/charts'
 
@@ -390,6 +467,8 @@ const analysisMessage = ref('')
 const currentTaskId = ref<string | null>(null)
 const lastAnalysis = ref<any | null>(null)
 const lastTaskInfo = ref<any | null>(null) // 保存任务信息（包含 end_time 等）
+const marketIntel = ref<StockOpportunity | null>(null)
+const marketIntelLoading = ref(false)
 
 // 报告对话框
 const showReportsDialog = ref(false)
@@ -622,7 +701,8 @@ async function clearCache() {
       fetchQuote(),
       fetchFundamentals(),
       fetchKline(),
-      fetchNews()
+      fetchNews(),
+      fetchMarketIntelligence()
     ])
 
     ElMessage.success('数据已刷新')
@@ -730,6 +810,7 @@ onMounted(async () => {
     fetchFundamentals(),
     fetchKline(),
     fetchNews(),
+    fetchMarketIntelligence(),
     checkFavorite(),
     fetchLatestAnalysis(),  // 获取最新的历史分析报告
     fetchSyncStatus()  // 获取同步状态
@@ -836,6 +917,19 @@ async function fetchNews() {
     newsSource.value = d.source
   } catch (e) {
     console.error('获取新闻失败', e)
+  }
+}
+
+async function fetchMarketIntelligence() {
+  if (!symbol.value) return
+  marketIntelLoading.value = true
+  try {
+    const res = await marketIntelligenceApi.getStockDetail(symbol.value, 72)
+    marketIntel.value = (res as any)?.data || null
+  } catch (e) {
+    console.warn('获取市场情报证据失败', e)
+  } finally {
+    marketIntelLoading.value = false
   }
 }
 
@@ -1050,6 +1144,18 @@ function fmtConf(v: any) {
   return `${Math.round(pct)}%`
 }
 
+function fmtScore(v: any) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n.toFixed(1) : '-'
+}
+
+function sentimentType(v: any) {
+  const n = Number(v || 0)
+  if (n >= 15) return 'success'
+  if (n <= -15) return 'danger'
+  return 'info'
+}
+
 import { formatDateTimeWithRelative, formatDateTime } from '@/utils/datetime'
 
 // 格式化分析时间（处理UTC时间转换为中国本地时间）
@@ -1224,6 +1330,103 @@ function exportReport() {
 .news-item .right { color: var(--el-text-color-secondary); font-size: 12px; white-space: nowrap; margin-left: 8px; }
 .news-item .meta { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; }
 
+.mi-card {
+  margin-top: 16px;
+}
+
+.mi-score-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mi-score {
+  padding: 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+
+  span {
+    display: block;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+  }
+
+  b {
+    display: block;
+    margin-top: 4px;
+    color: var(--el-color-primary);
+    font-size: 20px;
+  }
+}
+
+.mi-section {
+  margin-top: 16px;
+}
+
+.mi-section-title {
+  margin-bottom: 8px;
+  font-weight: 650;
+}
+
+.mi-cluster-list,
+.mi-comment-list,
+.mi-document-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mi-cluster,
+.mi-comment,
+.mi-document {
+  padding: 10px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-blank);
+}
+
+.mi-cluster-title {
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.mi-muted {
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.mi-comment {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+  line-height: 1.6;
+}
+
+.mi-document {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  color: inherit;
+  text-decoration: none;
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  em {
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    font-style: normal;
+    white-space: nowrap;
+  }
+}
+
 .sentiment { font-size: 12px; }
 .sentiment.pos { color: #ef4444; }
 .sentiment.neu { color: #64748b; }
@@ -1237,6 +1440,9 @@ function exportReport() {
 
 @media (max-width: 1024px) {
   .stats { grid-template-columns: repeat(4, 1fr); }
+  .mi-score-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mi-document { grid-template-columns: auto 1fr; }
+  .mi-document em { grid-column: 2; }
 }
 
 /* 报告相关样式 */

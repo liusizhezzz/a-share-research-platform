@@ -125,6 +125,78 @@ DEFAULT_MODEL_CAPABILITIES: Dict[str, Dict[str, Any]] = {
         "performance_metrics": {"speed": 2, "cost": 1, "quality": 5},
         "description": "通义千问长文本版，超长上下文"
     },
+    "qwen3.7-max": {
+        "capability_level": 5,
+        "suitable_roles": [ModelRole.DEEP_ANALYSIS],
+        "features": [ModelFeature.TOOL_CALLING, ModelFeature.LONG_CONTEXT, ModelFeature.REASONING],
+        "recommended_depths": ["标准", "深度", "全面"],
+        "performance_metrics": {"speed": 2, "cost": 1, "quality": 5},
+        "description": "DashScope 旗舰推理模型，适合事件推演和深度个股分析"
+    },
+    "qwen3.7-plus": {
+        "capability_level": 4,
+        "suitable_roles": [ModelRole.BOTH],
+        "features": [ModelFeature.TOOL_CALLING, ModelFeature.LONG_CONTEXT, ModelFeature.REASONING],
+        "recommended_depths": ["基础", "标准", "深度", "全面"],
+        "performance_metrics": {"speed": 3, "cost": 3, "quality": 5},
+        "description": "DashScope 高质量通用模型，适合日报、研报摘要和快速分析"
+    },
+    "qwen3.6-flash": {
+        "capability_level": 2,
+        "suitable_roles": [ModelRole.QUICK_ANALYSIS],
+        "features": [ModelFeature.TOOL_CALLING, ModelFeature.FAST_RESPONSE, ModelFeature.COST_EFFECTIVE],
+        "recommended_depths": ["快速", "基础", "标准"],
+        "performance_metrics": {"speed": 5, "cost": 5, "quality": 3},
+        "description": "DashScope 快速模型，适合新闻聚类、评论情绪和标签抽取"
+    },
+    "deepseek-v4-pro": {
+        "capability_level": 5,
+        "suitable_roles": [ModelRole.DEEP_ANALYSIS],
+        "features": [ModelFeature.TOOL_CALLING, ModelFeature.LONG_CONTEXT, ModelFeature.REASONING],
+        "recommended_depths": ["深度", "全面"],
+        "performance_metrics": {"speed": 2, "cost": 2, "quality": 5},
+        "description": "DashScope 托管 DeepSeek Pro，适合反方审查和复杂逻辑链挑战"
+    },
+    "deepseek-v4-flash": {
+        "capability_level": 3,
+        "suitable_roles": [ModelRole.BOTH],
+        "features": [ModelFeature.TOOL_CALLING, ModelFeature.FAST_RESPONSE, ModelFeature.REASONING],
+        "recommended_depths": ["快速", "基础", "标准", "深度"],
+        "performance_metrics": {"speed": 5, "cost": 4, "quality": 4},
+        "description": "DashScope 托管 DeepSeek Flash，适合突发事件快报"
+    },
+    "kimi-k2.6": {
+        "capability_level": 4,
+        "suitable_roles": [ModelRole.BOTH],
+        "features": [ModelFeature.LONG_CONTEXT, ModelFeature.REASONING],
+        "recommended_depths": ["标准", "深度", "全面"],
+        "performance_metrics": {"speed": 3, "cost": 3, "quality": 4},
+        "description": "DashScope 托管 Kimi，适合长文档和研报阅读"
+    },
+    "glm-5.1": {
+        "capability_level": 4,
+        "suitable_roles": [ModelRole.BOTH],
+        "features": [ModelFeature.TOOL_CALLING, ModelFeature.REASONING],
+        "recommended_depths": ["标准", "深度", "全面"],
+        "performance_metrics": {"speed": 3, "cost": 3, "quality": 4},
+        "description": "DashScope 托管 GLM，适合中文分析和结构化推理"
+    },
+    "MiniMax-M2.7": {
+        "capability_level": 4,
+        "suitable_roles": [ModelRole.BOTH],
+        "features": [ModelFeature.LONG_CONTEXT, ModelFeature.REASONING],
+        "recommended_depths": ["标准", "深度"],
+        "performance_metrics": {"speed": 3, "cost": 3, "quality": 4},
+        "description": "DashScope 托管 MiniMax，适合长文本分析"
+    },
+    "mimo-v2.5-pro": {
+        "capability_level": 4,
+        "suitable_roles": [ModelRole.BOTH],
+        "features": [ModelFeature.REASONING],
+        "recommended_depths": ["标准", "深度"],
+        "performance_metrics": {"speed": 3, "cost": 3, "quality": 4},
+        "description": "DashScope 托管 Mimo Pro，适合多角度分析"
+    },
     
     # ==================== OpenAI ====================
     "gpt-3.5-turbo": {
@@ -455,4 +527,3 @@ def parse_aggregator_model(model_name: str) -> Tuple[str, str]:
         parts = model_name.split("/", 1)
         return parts[0], parts[1]
     return "", model_name
-

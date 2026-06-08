@@ -105,10 +105,7 @@ const createAxiosInstance = (): AxiosInstance => {
           config.headers = config.headers || {}
           config.headers.Authorization = `Bearer ${token}`
           console.log('🔐 已设置Authorization头:', {
-            hasToken: !!token,
-            tokenLength: token?.length || 0,
-            tokenPrefix: token?.substring(0, 20) || 'None',
-            authHeader: config.headers.Authorization?.substring(0, 30) || 'None'
+            hasToken: !!token
           })
         } else {
           console.log('⚠️ 未设置Authorization头:', {

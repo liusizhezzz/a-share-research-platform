@@ -12,8 +12,17 @@
         <el-tag :type="scoreTag(row.score)" effect="plain">{{ formatNumber(row.score) }}</el-tag>
       </template>
     </el-table-column>
+    <el-table-column prop="prediction_horizon" label="预测期" width="112">
+      <template #default="{ row }">{{ row.prediction_horizon || '1-3交易日' }}</template>
+    </el-table-column>
     <el-table-column prop="signal_strength" label="确认" width="82" sortable>
       <template #default="{ row }">{{ formatNumber(row.signal_strength) }}</template>
+    </el-table-column>
+    <el-table-column prop="price_in_penalty" label="Price-in" width="90" sortable>
+      <template #default="{ row }">{{ formatNumber(row.price_in_penalty) }}</template>
+    </el-table-column>
+    <el-table-column prop="confidence" label="置信" width="78">
+      <template #default="{ row }">{{ formatNumber((row.confidence || 0) * 100) }}%</template>
     </el-table-column>
     <el-table-column prop="pct_chg" label="涨跌幅" width="86">
       <template #default="{ row }">

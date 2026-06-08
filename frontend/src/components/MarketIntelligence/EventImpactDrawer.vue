@@ -15,6 +15,27 @@
       </div>
       <p class="event-summary">{{ event.summary || '暂无摘要' }}</p>
 
+      <div class="section-title analysis-title">
+        <span>AI 影响面分析</span>
+        <el-button size="small" type="primary" plain :loading="analyzing" @click="emit('analyze')">
+          {{ analysis ? '重新分析' : '开始分析' }}
+        </el-button>
+      </div>
+      <div v-if="analyzing" class="analysis-box loading">
+        正在分析事件、资产变量、传导渠道、A股主题、个股映射和风险反证...
+      </div>
+      <div v-else-if="analysis?.analysis_markdown" class="analysis-box">
+        <div class="analysis-meta">
+          <el-tag size="small" effect="plain">{{ analysis.model || 'DashScope' }}</el-tag>
+          <span>{{ formatTime(analysis.updated_at) }}</span>
+          <el-tag v-if="analysis.fallback_used" size="small" type="warning" effect="plain">fallback</el-tag>
+        </div>
+        <div class="markdown-body" v-html="analysisHtml"></div>
+      </div>
+      <div v-else class="analysis-box empty">
+        点击“开始分析”，后端会基于当前新闻、事件、主题、个股和证据池生成影响链。
+      </div>
+
       <div class="section-title">传导路径</div>
       <div v-if="chain?.steps?.length" class="step-list">
         <div v-for="(step, index) in chain.steps" :key="step.label" class="step-item">
@@ -49,17 +70,32 @@
 </template>
 
 <script setup lang="ts">
-import type { EventImpactChain, GlobalEvent } from '@/api/marketIntelligence'
+import { computed } from 'vue'
+import { marked } from 'marked'
+import type { EventImpactAnalysis, EventImpactChain, GlobalEvent } from '@/api/marketIntelligence'
 
-defineProps<{
+const props = defineProps<{
   modelValue: boolean
   event?: GlobalEvent | null
   chain?: EventImpactChain | null
+  analysis?: EventImpactAnalysis | null
+  analyzing?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
+  analyze: []
 }>()
+
+const analysisHtml = computed(() => {
+  const markdown = props.analysis?.analysis_markdown || ''
+  if (!markdown) return ''
+  try {
+    return marked(markdown)
+  } catch {
+    return `<pre>${markdown}</pre>`
+  }
+})
 
 const severityTag = (severity?: number) => {
   const value = Number(severity || 0)
@@ -113,6 +149,56 @@ const formatTime = (value?: string) => {
   color: #182033;
 }
 
+.analysis-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.analysis-box {
+  padding: 12px;
+  border: 1px solid #dbe4f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  line-height: 1.7;
+
+  &.loading {
+    color: #1f6feb;
+  }
+
+  &.empty {
+    color: #64748b;
+  }
+}
+
+.analysis-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.markdown-body {
+  font-size: 13px;
+
+  :deep(h1),
+  :deep(h2),
+  :deep(h3) {
+    margin: 12px 0 8px;
+    color: #182033;
+  }
+
+  :deep(p),
+  :deep(li) {
+    line-height: 1.75;
+  }
+}
+
 .step-list {
   display: grid;
   gap: 12px;
@@ -157,4 +243,3 @@ const formatTime = (value?: string) => {
   text-decoration: none;
 }
 </style>
-

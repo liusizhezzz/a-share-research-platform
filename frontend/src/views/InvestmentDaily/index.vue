@@ -6,6 +6,23 @@
         <p>开盘前聚合量化信号、新闻、国际变量和公开评论</p>
       </div>
       <div class="header-actions">
+        <el-button v-if="reportId" @click="preanalyzeCandidates" :loading="preanalyzing">
+          <el-icon><DataAnalysis /></el-icon>
+          并发预分析
+        </el-button>
+        <el-dropdown v-if="reportId" trigger="click">
+          <el-button>
+            <el-icon><Download /></el-icon>
+            下载
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item @click="downloadReport('pdf')">PDF 报告</el-dropdown-item>
+              <el-dropdown-item @click="downloadReport('markdown')">Markdown</el-dropdown-item>
+              <el-dropdown-item @click="downloadReport('json')">JSON 数据</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-button @click="loadLatest" :loading="loading">
           <el-icon><Refresh /></el-icon>
           刷新
@@ -33,8 +50,20 @@
           </div>
         </div>
         <div class="temperature">
-          <div class="temperature-value">{{ report.market_temperature?.score ?? '-' }}</div>
-          <div class="temperature-label">市场温度 {{ report.market_temperature?.label || '-' }}</div>
+          <el-popover placement="left" width="360" trigger="click">
+            <template #reference>
+              <button class="temperature-button">
+                <div class="temperature-value">{{ report.market_temperature?.score ?? '-' }}</div>
+                <div class="temperature-label">市场温度 {{ report.market_temperature?.label || '-' }}</div>
+              </button>
+            </template>
+            <div class="formula-popover">
+              <div class="formula-title">市场温度计算</div>
+              <div>{{ report.market_temperature?.score_breakdown?.formula || '暂无公式' }}</div>
+              <div class="formula-sub">{{ report.market_temperature?.score_breakdown?.normalization_method || '暂无归一化说明' }}</div>
+              <pre>{{ stringify(report.market_temperature?.score_breakdown?.input_values) }}</pre>
+            </div>
+          </el-popover>
         </div>
       </div>
 
@@ -67,19 +96,50 @@
                 <span><el-icon><DataAnalysis /></el-icon> 股票候选</span>
               </div>
             </template>
-            <el-table :data="report.stocks || []" size="small" class="stock-table">
+            <el-alert
+              v-if="report.preanalysis?.mapping?.length"
+              class="preanalysis-alert"
+              type="success"
+              show-icon
+              :closable="false"
+              :title="`已提交 ${report.preanalysis.mapping.length} 只候选股 TradingAgents 并发分析`"
+            />
+            <el-table
+              :data="report.stocks || []"
+              size="small"
+              class="stock-table"
+              highlight-current-row
+              @row-click="openStock"
+            >
               <el-table-column prop="code" label="代码" width="92" />
               <el-table-column prop="name" label="名称" min-width="120">
                 <template #default="{ row }">
                   <div class="stock-name">{{ row.name }}</div>
-                  <div class="stock-source">{{ row.source }}</div>
+                  <div class="stock-source">{{ row.prediction_horizon || row.source }}</div>
                 </template>
               </el-table-column>
-              <el-table-column prop="score" label="综合分" width="86" sortable />
+              <el-table-column prop="score" label="预测分" width="92" sortable>
+                <template #default="{ row }">
+                  <el-popover placement="left" width="390" trigger="click">
+                    <template #reference>
+                      <el-tag class="score-tag" effect="plain">{{ Number(row.score || 0).toFixed(1) }}</el-tag>
+                    </template>
+                    <div class="formula-popover">
+                      <div class="formula-title">{{ row.name }} 预测分</div>
+                      <div>{{ row.score_breakdown?.formula || '暂无公式' }}</div>
+                      <div class="formula-sub">{{ row.score_breakdown?.normalization_method || '暂无归一化说明' }}</div>
+                      <pre>{{ stringify(row.score_breakdown?.input_values) }}</pre>
+                    </div>
+                  </el-popover>
+                </template>
+              </el-table-column>
               <el-table-column prop="pct_chg" label="涨跌幅" width="88">
                 <template #default="{ row }">
                   <span :class="priceClass(row.pct_chg)">{{ formatPct(row.pct_chg) }}</span>
                 </template>
+              </el-table-column>
+              <el-table-column prop="price_in_penalty" label="Price-in" width="92">
+                <template #default="{ row }">{{ Number(row.price_in_penalty || 0).toFixed(1) }}</template>
               </el-table-column>
               <el-table-column prop="industry" label="行业" width="110" />
               <el-table-column label="线索" min-width="180">
@@ -89,6 +149,33 @@
                 </template>
               </el-table-column>
             </el-table>
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <el-row :gutter="16" class="section-row">
+        <el-col :xs="24">
+          <el-card shadow="never" class="panel">
+            <template #header>
+              <div class="panel-header">
+                <span><el-icon><Connection /></el-icon> 新闻事件簇</span>
+              </div>
+            </template>
+            <div v-if="report.event_clusters?.length" class="cluster-list">
+              <div v-for="cluster in report.event_clusters.slice(0, 8)" :key="cluster.cluster_id" class="cluster-item">
+                <div class="cluster-title">{{ cluster.title }}</div>
+                <div class="cluster-meta">
+                  <span>{{ cluster.item_count || cluster.items?.length || 0 }} 条</span>
+                  <span>{{ (cluster.sources || []).join(' / ') || '多源' }}</span>
+                  <span>{{ formatTime(cluster.last_published_at) }}</span>
+                </div>
+                <div class="cluster-tags">
+                  <el-tag v-for="theme in cluster.themes || []" :key="theme" size="small" effect="plain">{{ theme }}</el-tag>
+                  <el-tag v-for="symbol in cluster.symbols || []" :key="symbol" size="small" type="success" effect="plain">{{ symbol }}</el-tag>
+                </div>
+              </div>
+            </div>
+            <el-empty v-else description="暂无聚合事件" :image-size="80" />
           </el-card>
         </el-col>
       </el-row>
@@ -147,11 +234,15 @@
             <template #header>
               <div class="panel-header">
                 <span><el-icon><Link /></el-icon> 市场新闻</span>
+                <el-select v-model="newsOrder" size="small" style="width: 128px">
+                  <el-option label="新到旧" value="desc" />
+                  <el-option label="旧到新" value="asc" />
+                </el-select>
               </div>
             </template>
             <div class="news-grid">
               <a
-                v-for="item in (report.market_news || []).slice(0, 18)"
+                v-for="item in sortedMarketNews.slice(0, 18)"
                 :key="item.title + item.source"
                 class="news-card"
                 :href="item.url"
@@ -161,6 +252,7 @@
                 <div class="news-card-title">{{ item.title }}</div>
                 <div class="news-card-meta">
                   <span>{{ item.source }}</span>
+                  <span>{{ formatTime(item.publish_time) }}</span>
                   <el-tag size="small" :type="sentimentTag(item.sentiment)">{{ sentimentText(item.sentiment) }}</el-tag>
                 </div>
               </a>
@@ -195,13 +287,15 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   ChatDotRound,
   Connection,
   DataAnalysis,
   Document,
+  Download,
   Link,
   Refresh,
   TrendCharts,
@@ -209,9 +303,24 @@ import {
 } from '@element-plus/icons-vue'
 import { investmentDailyApi, type InvestmentDailyReport } from '@/api/investmentDaily'
 
+const router = useRouter()
 const loading = ref(false)
 const generating = ref(false)
+const preanalyzing = ref(false)
+const newsOrder = ref<'desc' | 'asc'>('desc')
 const report = ref<InvestmentDailyReport | null>(null)
+
+const reportId = computed(() => String(report.value?._id || ''))
+
+const sortedMarketNews = computed(() => {
+  const items = [...(report.value?.market_news || [])]
+  const direction = newsOrder.value === 'asc' ? 1 : -1
+  return items.sort((a, b) => {
+    const left = new Date(a.publish_time || 0).getTime() || 0
+    const right = new Date(b.publish_time || 0).getTime() || 0
+    return (left - right) * direction
+  })
+})
 
 const loadLatest = async () => {
   loading.value = true
@@ -235,6 +344,52 @@ const generateReport = async () => {
     console.error('生成投资日报失败:', error)
   } finally {
     generating.value = false
+  }
+}
+
+const downloadReport = async (format: 'pdf' | 'markdown' | 'json') => {
+  if (!reportId.value) return
+  try {
+    await investmentDailyApi.download(reportId.value, format)
+  } catch (error) {
+    console.error('下载日报失败:', error)
+    ElMessage.error('下载日报失败')
+  }
+}
+
+const preanalyzeCandidates = async () => {
+  if (!reportId.value) return
+  preanalyzing.value = true
+  try {
+    const response = await investmentDailyApi.preanalyze(reportId.value, 8)
+    report.value = {
+      ...(report.value as InvestmentDailyReport),
+      preanalysis: {
+        submitted_at: new Date().toISOString(),
+        task_ids: response.data.task_ids,
+        mapping: response.data.mapping
+      }
+    }
+    ElMessage.success(`已提交 ${response.data.count || 0} 只候选股并发分析`)
+  } catch (error) {
+    console.error('提交候选股预分析失败:', error)
+    ElMessage.error('提交候选股预分析失败')
+  } finally {
+    preanalyzing.value = false
+  }
+}
+
+const openStock = (row: { code?: string }) => {
+  if (!row?.code) return
+  router.push({ name: 'StockDetail', params: { code: row.code } })
+}
+
+const stringify = (value?: Record<string, any>) => {
+  if (!value) return '{}'
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
   }
 }
 
@@ -349,6 +504,15 @@ onMounted(loadLatest)
   border-left: 1px solid var(--el-border-color-lighter);
 }
 
+.temperature-button {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
 .temperature-value {
   font-size: 34px;
   font-weight: 700;
@@ -417,6 +581,18 @@ onMounted(loadLatest)
 
 .stock-name {
   font-weight: 600;
+}
+
+.stock-table {
+  cursor: pointer;
+}
+
+.preanalysis-alert {
+  margin-bottom: 10px;
+}
+
+.score-tag {
+  cursor: help;
 }
 
 .clue {
@@ -503,6 +679,66 @@ onMounted(loadLatest)
   line-height: 1.6;
 }
 
+.cluster-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cluster-item {
+  padding: 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+}
+
+.cluster-title {
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.cluster-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.cluster-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.formula-popover {
+  color: var(--el-text-color-primary);
+  line-height: 1.6;
+
+  pre {
+    max-height: 220px;
+    overflow: auto;
+    padding: 10px;
+    margin: 10px 0 0;
+    border-radius: 8px;
+    background: var(--el-fill-color-light);
+    font-size: 12px;
+  }
+}
+
+.formula-title {
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+.formula-sub {
+  margin-top: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
 @media (max-width: 900px) {
   .investment-daily {
     padding: 16px;
@@ -524,6 +760,10 @@ onMounted(loadLatest)
   }
 
   .news-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cluster-list {
     grid-template-columns: 1fr;
   }
 }

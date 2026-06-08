@@ -26,7 +26,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import maplibregl from 'maplibre-gl'
 import { MapboxOverlay } from '@deck.gl/mapbox'
-import { ArcLayer, ScatterplotLayer } from '@deck.gl/layers'
+import { ArcLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { GlobalEvent } from '@/api/marketIntelligence'
 
@@ -89,6 +89,27 @@ const buildLayers = () => [
       if (info.object) emit('select', info.object)
       return true
     }
+  }),
+  new TextLayer<GlobalEvent>({
+    id: 'global-event-labels',
+    data: props.events.slice(0, 42),
+    getPosition: (event) => [Number(event.lon || 0), Number(event.lat || 0)],
+    getText: (event) => event.location_name || event.country || event.region || event.title.slice(0, 8),
+    getSize: (event) => (event.event_id === props.selectedEventId ? 14 : 11),
+    getColor: (event) => (event.event_id === props.selectedEventId ? [255, 255, 255, 245] : [197, 211, 231, 210]),
+    getAngle: 0,
+    getTextAnchor: 'start',
+    getAlignmentBaseline: 'center',
+    getPixelOffset: [12, -12],
+    background: true,
+    getBackgroundColor: (event) =>
+      event.event_id === props.selectedEventId ? [24, 37, 58, 230] : [8, 14, 24, 160],
+    backgroundPadding: [4, 2],
+    pickable: true,
+    onClick: (info) => {
+      if (info.object) emit('select', info.object)
+      return true
+    }
   })
 ]
 
@@ -107,6 +128,12 @@ onMounted(async () => {
       style: darkMatterStyle,
       center: [42, 24],
       zoom: 1.15,
+      minZoom: 0.9,
+      maxZoom: 6,
+      maxBounds: [
+        [-180, -68],
+        [180, 82]
+      ],
       attributionControl: false,
       dragRotate: false,
       pitchWithRotate: false
@@ -134,9 +161,26 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => props.events,
+  () => [props.events, props.selectedEventId],
   () => syncLayers(),
   { deep: true }
+)
+
+watch(
+  () => props.selectedEventId,
+  (eventId) => {
+    if (!eventId || !map) return
+    const event = props.events.find((item) => item.event_id === eventId)
+    if (!event) return
+    const lon = Number(event.lon || 0)
+    const lat = Number(event.lat || 0)
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return
+    map.flyTo({
+      center: [lon, lat],
+      zoom: Math.max(map.getZoom(), 2.15),
+      essential: true
+    })
+  }
 )
 </script>
 

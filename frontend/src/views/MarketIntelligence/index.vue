@@ -21,6 +21,10 @@
           <el-icon><Refresh /></el-icon>
           刷新
         </el-button>
+        <el-button @click="showMethodology">
+          <el-icon><DataAnalysis /></el-icon>
+          方法论
+        </el-button>
         <el-button type="primary" @click="generateReport" :loading="generating">
           <el-icon><Document /></el-icon>
           生成报告
@@ -51,17 +55,17 @@
 
     <template v-if="dashboard">
       <div class="kpi-grid">
-        <div class="kpi-panel">
+        <div class="kpi-panel clickable" @click="showMethodology">
           <div class="kpi-label"><el-icon><TrendCharts /></el-icon>市场温度</div>
           <div class="kpi-value">{{ formatScore(marketTemperature) }}</div>
           <div class="kpi-sub">主题均分 / 资金量价等待确认</div>
         </div>
-        <div class="kpi-panel">
+        <div class="kpi-panel clickable" @click="showMethodology">
           <div class="kpi-label"><el-icon><WarningFilled /></el-icon>全球风险</div>
           <div class="kpi-value danger">{{ formatScore(globalRisk) }}</div>
           <div class="kpi-sub">{{ dashboard.global_events.length }} 个事件</div>
         </div>
-        <div class="kpi-panel">
+        <div class="kpi-panel clickable" @click="showMethodology">
           <div class="kpi-label"><el-icon><Connection /></el-icon>数据覆盖</div>
           <div class="kpi-value">{{ dashboard.source_coverage.score }}%</div>
           <div class="kpi-sub">{{ dashboard.source_coverage.label }}</div>
@@ -84,6 +88,31 @@
           <span>{{ dashboard.has_high_severity_event ? '高风险置顶' : '常规监控' }}</span>
         </div>
       </div>
+
+      <section v-if="dashboard.event_clusters?.length" class="panel cluster-panel">
+        <div class="panel-header">
+          <span><el-icon><Tickets /></el-icon>事件新闻簇</span>
+          <el-tag effect="plain">{{ dashboard.event_clusters.length }} clusters</el-tag>
+        </div>
+        <div class="cluster-grid">
+          <button
+            v-for="cluster in dashboard.event_clusters.slice(0, 8)"
+            :key="cluster.cluster_id"
+            class="cluster-card"
+            @click="filterCluster(cluster)"
+          >
+            <span class="cluster-title">{{ cluster.title }}</span>
+            <span class="cluster-meta">
+              {{ cluster.document_count || 0 }} 条 · {{ (cluster.sources || []).slice(0, 3).join(' / ') || '多源' }}
+            </span>
+            <span class="cluster-tags">
+              <el-tag v-for="theme in (cluster.themes || []).slice(0, 3)" :key="theme" size="small" effect="plain">
+                {{ theme }}
+              </el-tag>
+            </span>
+          </button>
+        </div>
+      </section>
 
       <section v-if="dashboard.source_envelopes?.length" class="panel source-panel">
         <div class="panel-header">
@@ -125,7 +154,18 @@
         <section class="panel impact-panel">
           <div class="panel-header">
             <span><el-icon><Share /></el-icon>事件影响链</span>
-            <el-button text size="small" :disabled="!selectedEvent" @click="drawerVisible = true">详情</el-button>
+            <div class="panel-actions">
+              <el-button
+                text
+                size="small"
+                :disabled="!selectedEvent"
+                :loading="eventAnalyzing"
+                @click="analyzeSelectedEvent(true)"
+              >
+                分析影响面
+              </el-button>
+              <el-button text size="small" :disabled="!selectedEvent" @click="drawerVisible = true">详情</el-button>
+            </div>
           </div>
           <div v-if="selectedEvent" class="selected-event">
             <div class="event-top">
@@ -136,6 +176,10 @@
             </div>
             <h2>{{ selectedEvent.title }}</h2>
             <p>{{ selectedEvent.summary }}</p>
+            <div v-if="eventAnalyzing" class="analysis-status">正在分析：事件、资产变量、传导渠道、A股主题和个股映射...</div>
+            <div v-else-if="eventAnalysis?.status === 'ready' || eventAnalysis?.status === 'partial'" class="analysis-status ready">
+              AI 影响分析已生成 · {{ eventAnalysis.model || 'DashScope' }}
+            </div>
           </div>
           <TransmissionSankeyChart :chain="selectedChain" />
           <EventTimelineFeed
@@ -205,13 +249,27 @@
         v-model="drawerVisible"
         :event="selectedEvent"
         :chain="selectedChain"
+        :analysis="eventAnalysis"
+        :analyzing="eventAnalyzing"
+        @analyze="analyzeSelectedEvent(true)"
       />
+
+      <el-drawer v-model="methodologyVisible" title="评分方法论" size="520px" append-to-body>
+        <div v-if="methodology" class="methodology">
+          <h3>模型路由</h3>
+          <pre>{{ stringify(methodology.llm_policy) }}</pre>
+          <h3>公式与归一化</h3>
+          <pre>{{ stringify(methodology.formulas || methodology) }}</pre>
+        </div>
+        <el-skeleton v-else :rows="8" animated />
+      </el-drawer>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   Bell,
@@ -230,6 +288,8 @@ import {
 } from '@element-plus/icons-vue'
 import {
   marketIntelligenceApi,
+  type EventCluster,
+  type EventImpactAnalysis,
   type GlobalEvent,
   type MarketIntelligenceDashboard,
   type StockOpportunity,
@@ -247,6 +307,7 @@ import StockOpportunityTable from '@/components/MarketIntelligence/StockOpportun
 import ThemeTreemapChart from '@/components/MarketIntelligence/ThemeTreemapChart.vue'
 import TransmissionSankeyChart from '@/components/MarketIntelligence/TransmissionSankeyChart.vue'
 
+const router = useRouter()
 const loading = ref(false)
 const generating = ref(false)
 const hours = ref(36)
@@ -257,6 +318,10 @@ const selectedTheme = ref<ThemeHeatmapNode | null>(null)
 const selectedStock = ref<StockOpportunity | null>(null)
 const selectedLayerIds = ref<string[]>([])
 const drawerVisible = ref(false)
+const methodologyVisible = ref(false)
+const methodology = ref<Record<string, any> | null>(null)
+const eventAnalysis = ref<EventImpactAnalysis | null>(null)
+const eventAnalyzing = ref(false)
 let refreshTimer: number | undefined
 
 const staleSources = computed(() =>
@@ -301,6 +366,7 @@ const loadLatest = async () => {
     dashboard.value = response.data
     ensureLayerSelection()
     ensureSelection()
+    await fetchSelectedEventAnalysis()
   } catch (error) {
     console.error('加载市场情报失败:', error)
   } finally {
@@ -352,11 +418,78 @@ const ensureLayerSelection = () => {
 
 const selectEvent = (event: GlobalEvent) => {
   selectedEventId.value = event.event_id
+  drawerVisible.value = true
+  void analyzeEvent(event.event_id, false)
 }
 
 const handleStockSelect = (stock: StockOpportunity) => {
   selectedStock.value = stock
-  ElMessage.info(`${stock.name}(${stock.code}) 已选中，可结合右侧证据和报告验证`)
+  router.push({ name: 'StockDetail', params: { code: stock.code } })
+}
+
+const filterCluster = (cluster: EventCluster) => {
+  const themes = new Set(cluster.themes || [])
+  const event = (dashboard.value?.global_events || []).find((item) =>
+    (item.mapped_themes || []).some((theme) => themes.has(theme))
+  )
+  if (event) selectEvent(event)
+  else ElMessage.info('该事件簇暂无可定位地图事件，已保留在事件簇列表中')
+}
+
+const analyzeEvent = async (eventId: string, force = false) => {
+  if (!eventId) return
+  eventAnalyzing.value = true
+  try {
+    const response = await marketIntelligenceApi.analyzeEvent(eventId, force)
+    eventAnalysis.value = response.data
+    drawerVisible.value = true
+  } catch (error) {
+    console.error('事件影响分析失败:', error)
+    ElMessage.error('事件影响分析失败')
+  } finally {
+    eventAnalyzing.value = false
+  }
+}
+
+const analyzeSelectedEvent = async (force = false) => {
+  const eventId = selectedEvent.value?.event_id
+  if (!eventId) return
+  await analyzeEvent(eventId, force)
+}
+
+const fetchSelectedEventAnalysis = async () => {
+  const eventId = selectedEvent.value?.event_id
+  if (!eventId) {
+    eventAnalysis.value = null
+    return
+  }
+  try {
+    const response = await marketIntelligenceApi.getEventAnalysis(eventId)
+    eventAnalysis.value = response.data?.status === 'not_started' ? null : response.data
+  } catch {
+    eventAnalysis.value = null
+  }
+}
+
+const showMethodology = async () => {
+  methodologyVisible.value = true
+  if (methodology.value) return
+  try {
+    const response = await marketIntelligenceApi.getMethodology()
+    methodology.value = response.data
+  } catch (error) {
+    console.error('加载方法论失败:', error)
+    ElMessage.error('加载方法论失败')
+  }
+}
+
+const stringify = (value?: Record<string, any>) => {
+  if (!value) return '{}'
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
 }
 
 const formatTime = (value?: string | null) => {
@@ -456,6 +589,18 @@ onBeforeUnmount(() => {
   padding: 15px;
 }
 
+.clickable {
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    transform 0.2s ease;
+
+  &:hover {
+    border-color: rgba(120, 170, 255, 0.46);
+    transform: translateY(-1px);
+  }
+}
+
 .kpi-label,
 .panel-header span {
   display: inline-flex;
@@ -528,8 +673,50 @@ onBeforeUnmount(() => {
 }
 
 .source-panel,
-.corridor-panel {
+.corridor-panel,
+.cluster-panel {
   margin-bottom: 14px;
+}
+
+.cluster-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cluster-card {
+  display: grid;
+  gap: 7px;
+  min-height: 104px;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.26);
+  color: inherit;
+  cursor: pointer;
+
+  &:hover {
+    border-color: rgba(57, 116, 216, 0.55);
+    background: rgba(57, 116, 216, 0.12);
+  }
+}
+
+.cluster-title {
+  color: #f4f8ff;
+  font-weight: 680;
+  line-height: 1.45;
+}
+
+.cluster-meta {
+  color: #8796af;
+  font-size: 12px;
+}
+
+.cluster-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
 .main-grid {
@@ -561,6 +748,12 @@ onBeforeUnmount(() => {
   color: #f4f8ff;
 }
 
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .map-panel {
   min-height: 500px;
 }
@@ -587,6 +780,21 @@ onBeforeUnmount(() => {
     margin: 0;
     color: #aab8cc;
     line-height: 1.6;
+  }
+}
+
+.analysis-status {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(57, 116, 216, 0.14);
+  color: #bdd4ff;
+  font-size: 12px;
+  line-height: 1.55;
+
+  &.ready {
+    background: rgba(31, 191, 143, 0.12);
+    color: #8de0c6;
   }
 }
 
@@ -633,6 +841,26 @@ onBeforeUnmount(() => {
   }
 }
 
+.methodology {
+  color: #1f2937;
+
+  h3 {
+    margin: 8px 0 10px;
+    font-size: 15px;
+  }
+
+  pre {
+    max-height: 320px;
+    overflow: auto;
+    padding: 12px;
+    border-radius: 8px;
+    background: #f7f9fc;
+    white-space: pre-wrap;
+    line-height: 1.6;
+    font-size: 12px;
+  }
+}
+
 :deep(.el-table) {
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;
@@ -653,7 +881,8 @@ onBeforeUnmount(() => {
   .kpi-grid,
   .main-grid,
   .analysis-grid,
-  .analysis-grid.bottom {
+  .analysis-grid.bottom,
+  .cluster-grid {
     grid-template-columns: 1fr;
   }
 

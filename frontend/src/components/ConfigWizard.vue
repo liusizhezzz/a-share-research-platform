@@ -401,9 +401,15 @@ const availableModels = computed(() => {
       { label: 'deepseek-coder', value: 'deepseek-coder' }
     ],
     dashscope: [
-      { label: 'qwen-turbo', value: 'qwen-turbo' },
-      { label: 'qwen-plus', value: 'qwen-plus' },
-      { label: 'qwen-max', value: 'qwen-max' }
+      { label: 'qwen3.7-plus（日报/常规分析）', value: 'qwen3.7-plus' },
+      { label: 'qwen3.7-max（深度推演）', value: 'qwen3.7-max' },
+      { label: 'qwen3.6-flash（聚类/情绪/标签）', value: 'qwen3.6-flash' },
+      { label: 'deepseek-v4-pro（风险审查）', value: 'deepseek-v4-pro' },
+      { label: 'deepseek-v4-flash（突发快报）', value: 'deepseek-v4-flash' },
+      { label: 'kimi-k2.6', value: 'kimi-k2.6' },
+      { label: 'glm-5.1', value: 'glm-5.1' },
+      { label: 'MiniMax-M2.7', value: 'MiniMax-M2.7' },
+      { label: 'mimo-v2.5-pro', value: 'mimo-v2.5-pro' }
     ],
     openai: [
       { label: 'gpt-3.5-turbo', value: 'gpt-3.5-turbo' },
