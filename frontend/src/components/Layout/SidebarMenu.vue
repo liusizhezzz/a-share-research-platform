@@ -11,6 +11,20 @@
       <template #title>仪表板</template>
     </el-menu-item>
 
+    <div v-show="!appStore.sidebarCollapsed" class="menu-section-label">重点投研</div>
+
+    <el-menu-item index="/market-intelligence" class="priority-menu-item">
+      <el-icon><DataAnalysis /></el-icon>
+      <template #title>市场情报</template>
+    </el-menu-item>
+
+    <el-menu-item index="/investment-daily" class="priority-menu-item">
+      <el-icon><Document /></el-icon>
+      <template #title>投资日报</template>
+    </el-menu-item>
+
+    <div v-show="!appStore.sidebarCollapsed" class="menu-section-label">常用工具</div>
+
     <el-menu-item index="/learning">
       <el-icon><Reading /></el-icon>
       <template #title>学习中心</template>
@@ -40,16 +54,6 @@
     <el-menu-item index="/favorites">
       <el-icon><Star /></el-icon>
       <template #title>我的自选股</template>
-    </el-menu-item>
-
-    <el-menu-item index="/market-intelligence">
-      <el-icon><DataAnalysis /></el-icon>
-      <template #title>市场情报</template>
-    </el-menu-item>
-
-    <el-menu-item index="/investment-daily">
-      <el-icon><Document /></el-icon>
-      <template #title>投资日报</template>
     </el-menu-item>
 
     <el-menu-item index="/paper">
@@ -146,6 +150,27 @@ const activeMenu = computed(() => route.path)
   :deep(.el-menu-item.is-active) {
     background-color: var(--el-color-primary-light-9);
     color: var(--el-color-primary);
+  }
+
+  .menu-section-label {
+    padding: 12px 18px 6px;
+    color: var(--el-text-color-placeholder);
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0;
+  }
+
+  :deep(.priority-menu-item) {
+    margin: 4px 10px;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 8px;
+    background: linear-gradient(90deg, var(--el-color-primary-light-9), transparent 82%);
+    font-weight: 650;
+
+    &.is-active {
+      border-color: var(--el-color-primary-light-5);
+      background: var(--el-color-primary-light-8);
+    }
   }
 }
 </style>

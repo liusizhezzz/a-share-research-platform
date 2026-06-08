@@ -54,7 +54,7 @@
 
       <!-- 页面内容 -->
       <main class="main-content">
-        <div class="content-wrapper">
+        <div class="content-wrapper" :class="{ 'research-workspace': isResearchWorkspace }">
           <router-view v-slot="{ Component, route }">
             <transition
               :name="route.meta.transition || 'fade'"
@@ -104,6 +104,9 @@ const keepAliveComponents = computed(() => [
 
 // 移动端判断
 const isMobile = computed(() => width.value < 768)
+const isResearchWorkspace = computed(() =>
+  route.path.startsWith('/market-intelligence') || route.path.startsWith('/investment-daily')
+)
 
 // 点击主内容时，若移动端且侧边栏已展开，则收起
 const handleMainClick = () => {
@@ -242,6 +245,10 @@ watch(() => route.fullPath, () => {
   .content-wrapper {
     max-width: 1400px;
     margin: 0 auto;
+
+    &.research-workspace {
+      max-width: 1760px;
+    }
   }
 }
 

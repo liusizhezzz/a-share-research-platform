@@ -69,7 +69,7 @@
       </div>
 
       <el-row :gutter="16" class="section-row">
-        <el-col :xs="24" :lg="10">
+        <el-col :xs="24">
           <el-card shadow="never" class="panel">
             <template #header>
               <div class="panel-header">
@@ -89,8 +89,10 @@
             <el-empty v-else description="暂无方向数据" :image-size="80" />
           </el-card>
         </el-col>
+      </el-row>
 
-        <el-col :xs="24" :lg="14">
+      <el-row :gutter="16" class="section-row">
+        <el-col :xs="24">
           <el-card shadow="never" class="panel">
             <template #header>
               <div class="panel-header">
@@ -143,7 +145,7 @@
                 <template #default="{ row }">{{ Number(row.price_in_penalty || 0).toFixed(1) }}</template>
               </el-table-column>
               <el-table-column prop="industry" label="行业" width="110" />
-              <el-table-column label="线索" min-width="180">
+              <el-table-column label="线索" min-width="420">
                 <template #default="{ row }">
                   <div class="clue">{{ row.reason }}</div>
                   <div v-if="row.candidate_scope || row.universe_source" class="sub-clue">
@@ -579,17 +581,16 @@ onMounted(loadLatest)
 
 .direction-list {
   display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 
 .direction-item {
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
-
-  &:last-child {
-    border-bottom: none;
-    padding-bottom: 0;
-  }
+  min-height: 112px;
+  padding: 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
 }
 
 .direction-top {
@@ -794,8 +795,18 @@ onMounted(loadLatest)
     grid-template-columns: 1fr;
   }
 
+  .direction-list {
+    grid-template-columns: 1fr;
+  }
+
   .cluster-list {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1300px) {
+  .direction-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

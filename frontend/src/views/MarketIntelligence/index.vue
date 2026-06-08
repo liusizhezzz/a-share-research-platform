@@ -10,6 +10,7 @@
           <el-option :value="12" label="近12小时" />
           <el-option :value="36" label="近36小时" />
           <el-option :value="72" label="近72小时" />
+          <el-option :value="168" label="近7天" />
         </el-select>
         <el-select v-model="reportType" class="type-select">
           <el-option value="pre_market" label="开盘前报告" />
@@ -229,18 +230,18 @@
           </div>
           <IndustryHeatmapChart :cells="dashboard.industry_matrix" />
         </section>
-
-        <section class="panel">
-          <div class="panel-header">
-            <span><el-icon><Tickets /></el-icon>个股机会表</span>
-            <el-tag v-if="selectedStock" effect="plain">{{ selectedStock.name }}({{ selectedStock.code }})</el-tag>
-          </div>
-          <StockOpportunityTable
-            :stocks="dashboard.stock_opportunities"
-            @select="handleStockSelect"
-          />
-        </section>
       </div>
+
+      <section class="panel stock-panel">
+        <div class="panel-header">
+          <span><el-icon><Tickets /></el-icon>个股机会表</span>
+          <el-tag v-if="selectedStock" effect="plain">{{ selectedStock.name }}({{ selectedStock.code }})</el-tag>
+        </div>
+        <StockOpportunityTable
+          :stocks="dashboard.stock_opportunities"
+          @select="handleStockSelect"
+        />
+      </section>
 
       <section class="panel report-panel">
         <div class="panel-header">
@@ -315,7 +316,7 @@ import TransmissionSankeyChart from '@/components/MarketIntelligence/Transmissio
 const router = useRouter()
 const loading = ref(false)
 const generating = ref(false)
-const hours = ref(36)
+const hours = ref(168)
 const reportType = ref('pre_market')
 const dashboard = ref<MarketIntelligenceDashboard | null>(null)
 const selectedEventId = ref<string>()
@@ -966,7 +967,8 @@ onBeforeUnmount(() => {
 }
 
 .main-grid {
-  grid-template-columns: minmax(0, 1.6fr) minmax(340px, 0.9fr);
+  grid-template-columns: 1fr;
+  margin-top: 14px;
 }
 
 .analysis-grid {
@@ -974,7 +976,7 @@ onBeforeUnmount(() => {
   margin-top: 14px;
 
   &.bottom {
-    grid-template-columns: minmax(320px, 0.75fr) minmax(0, 1.25fr);
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1001,11 +1003,15 @@ onBeforeUnmount(() => {
 }
 
 .map-panel {
-  min-height: 500px;
+  min-height: 640px;
 }
 
 .impact-panel {
-  min-height: 500px;
+  min-height: 460px;
+}
+
+.stock-panel {
+  margin-top: 14px;
 }
 
 .selected-event {
