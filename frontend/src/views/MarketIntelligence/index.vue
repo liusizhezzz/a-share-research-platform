@@ -725,21 +725,49 @@ const resolveClusterEvent = (cluster: EventCluster) => {
   return bestScore >= 38 ? bestEvent : null
 }
 
-const buildLocalImpactChain = (event: GlobalEvent) => ({
-  event_id: event.event_id,
-  event_title: event.title,
-  severity: event.severity,
-  location_name: event.location_name || event.region || event.country,
-  steps: [
-    { label: '事件', value: event.summary || event.title },
-    { label: '资产/变量', value: (event.affected_assets || []).slice(0, 4).join('、') || '等待资产响应确认' },
-    { label: '传导渠道', value: (event.transmission_channels || []).slice(0, 4).join('、') || '等待传导渠道确认' },
-    { label: 'A股主题', value: (event.mapped_themes || []).slice(0, 5).join('、') || '等待主题映射' },
-    { label: '候选股票', value: (event.mapped_stocks || []).slice(0, 6).join('、') || '等待资金/量价确认' }
-  ],
-  mapped_themes: event.mapped_themes || [],
-  mapped_stocks: []
-})
+const formatStockBrief = (stock: StockOpportunity) =>
+  `${stock.name || stock.code}${stock.code ? `(${stock.code})` : ''}`
+
+const resolveEventStockCandidates = (event: GlobalEvent) => {
+  const stocks = dashboard.value?.stock_opportunities || []
+  const eventCodes = new Set(event.mapped_stocks || [])
+  const eventThemes = new Set(event.mapped_themes || [])
+  const scored = stocks.map((stock) => {
+    let score = 0
+    if (eventCodes.has(stock.code)) score += 80
+    if (stock.theme && eventThemes.has(stock.theme)) score += 34
+    ;(stock.matched_themes || []).forEach((theme) => {
+      if (eventThemes.has(theme)) score += 20
+    })
+    score += Math.min(20, Number(stock.event_exposure_score || 0) / 5)
+    score += Math.min(12, Number(stock.score || 0) / 10)
+    return { stock, score }
+  })
+  return scored
+    .filter((item) => item.score > 24)
+    .sort((a, b) => b.score - a.score)
+    .map((item) => item.stock)
+    .slice(0, 8)
+}
+
+const buildLocalImpactChain = (event: GlobalEvent) => {
+  const stocks = resolveEventStockCandidates(event)
+  return {
+    event_id: event.event_id,
+    event_title: event.title,
+    severity: event.severity,
+    location_name: event.location_name || event.region || event.country,
+    steps: [
+      { label: '事件', value: event.summary || event.title },
+      { label: '资产/变量', value: (event.affected_assets || []).slice(0, 4).join('、') || '等待资产响应确认' },
+      { label: '传导渠道', value: (event.transmission_channels || []).slice(0, 4).join('、') || '等待传导渠道确认' },
+      { label: 'A股主题', value: (event.mapped_themes || []).slice(0, 5).join('、') || '等待主题映射' },
+      { label: '候选股票', value: stocks.map(formatStockBrief).slice(0, 6).join('、') || (event.mapped_stocks || []).slice(0, 6).join('、') || '等待资金/量价确认' }
+    ],
+    mapped_themes: event.mapped_themes || [],
+    mapped_stocks: stocks
+  }
+}
 
 const showMethodology = async () => {
   methodologyVisible.value = true

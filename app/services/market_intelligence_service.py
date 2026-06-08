@@ -237,7 +237,7 @@ PUBLIC_THEME_KEYWORDS: Dict[str, List[str]] = {
     "军工安全": ["defense", "military", "missile", "navy", "sanction", "security", "cyber", "vulnerability", "ransomware", "exploit"],
     "医药医疗": ["health", "disease", "outbreak", "vaccine", "pharma", "who", "cdc", "hospital"],
     "消费出海": ["trade", "tariff", "export", "shipping", "freight", "consumer", "e-commerce", "supply chain"],
-    "资源通胀": ["oil", "crude", "lng", "gas", "copper", "gold", "commodity", "freight", "grain", "wheat", "food"],
+    "资源通胀": ["oil", "crude", "lng", "gas", "copper", "gold", "palladium", "platinum", "precious metal", "commodity", "freight", "grain", "wheat", "food"],
     "金融地产": ["federal reserve", "fed", "treasury", "cpi", "inflation", "rate", "yield", "dollar", "liquidity", "bitcoin", "stablecoin", "bank"],
 }
 
@@ -494,7 +494,7 @@ THEME_INDUSTRY_HINTS: Dict[str, List[str]] = {
     "军工安全": ["军工", "航天", "航空", "卫星", "无人机", "雷达", "船舶", "兵器", "信息安全", "网络安全", "低空"],
     "医药医疗": ["医药", "医疗", "器械", "创新药", "CXO", "生物", "疫苗", "中药", "化学制药", "医疗服务"],
     "消费出海": ["家电", "消费", "食品", "饮料", "服装", "跨境", "电商", "旅游", "酒店", "出口", "轻工", "纺织", "品牌"],
-    "资源通胀": ["有色", "黄金", "铜", "铝", "稀土", "煤炭", "石油", "油气", "化工", "钢铁", "农产品", "航运"],
+    "资源通胀": ["有色", "黄金", "铜", "铝", "钯", "铂", "贵金属", "铂族", "稀土", "煤炭", "石油", "油气", "化工", "钢铁", "农产品", "航运"],
     "金融地产": ["银行", "证券", "券商", "保险", "地产", "房地产", "多元金融", "信托", "并购", "资产管理"],
 }
 
@@ -647,6 +647,47 @@ STRATEGIC_CORRIDORS: List[Dict[str, Any]] = [
         "exposure": ["粮食", "天然气", "油运"],
         "a_share_themes": ["资源通胀", "军工安全"],
         "base_risk": 57,
+    },
+]
+
+EVENT_STOCK_HINTS: List[Dict[str, Any]] = [
+    {
+        "keywords": ["钯", "钯金", "palladium", "铂", "铂金", "platinum", "铂族", "贵金属"],
+        "themes": ["资源通胀", "新能源", "消费出海"],
+        "stocks": [
+            {"code": "600459", "name": "贵研铂业", "reason": "铂族金属与汽车催化材料，直接跟踪铂钯价格和替代效应"},
+            {"code": "600206", "name": "有研新材", "reason": "有色/稀贵金属新材料，跟踪贵金属材料需求与库存周期"},
+            {"code": "600111", "name": "北方稀土", "reason": "小金属/稀土代表，作为资源品情绪和金属价格联动观察"},
+            {"code": "600160", "name": "巨化股份", "reason": "化工材料链，观察大宗原料价格变化对成本和利润弹性的影响"},
+        ],
+    },
+    {
+        "keywords": ["原油", "石油", "油价", "crude", "oil", "brent", "wti", "opec"],
+        "themes": ["资源通胀", "消费出海"],
+        "stocks": [
+            {"code": "600938", "name": "中国海油", "reason": "油气开采，直接跟踪油价上行和资本开支弹性"},
+            {"code": "601857", "name": "中国石油", "reason": "油气产业链龙头，观察油价、炼化价差和天然气链条"},
+            {"code": "600028", "name": "中国石化", "reason": "炼化和成品油链，油价变化同时影响成本与库存收益"},
+            {"code": "601872", "name": "招商轮船", "reason": "油运/航运链，跟踪地缘扰动、运价和保险成本"},
+        ],
+    },
+    {
+        "keywords": ["铜", "copper"],
+        "themes": ["资源通胀", "新能源"],
+        "stocks": [
+            {"code": "601899", "name": "紫金矿业", "reason": "铜金资源龙头，跟踪铜价和矿山供给扰动"},
+            {"code": "603993", "name": "洛阳钼业", "reason": "铜钴钼资源链，观察新能源金属价格弹性"},
+            {"code": "000630", "name": "铜陵有色", "reason": "铜冶炼与加工，观察铜价、加工费和库存周期"},
+        ],
+    },
+    {
+        "keywords": ["航运", "红海", "苏伊士", "霍尔木兹", "马六甲", "shipping", "suez", "hormuz", "malacca"],
+        "themes": ["消费出海", "资源通胀", "军工安全"],
+        "stocks": [
+            {"code": "601919", "name": "中远海控", "reason": "集运龙头，跟踪运价、绕航和出口链交付周期"},
+            {"code": "601872", "name": "招商轮船", "reason": "油运和干散链，跟踪能源运输和保险成本变化"},
+            {"code": "600150", "name": "中国船舶", "reason": "船舶制造，观察航运景气和军民船订单周期"},
+        ],
     },
 ]
 
@@ -1046,7 +1087,7 @@ class MarketIntelligenceService:
             "has_high_severity_event": high_event,
             "global_events": events[:80],
             "event_clusters": event_clusters[:30],
-            "event_impact_chains": event_chains[:8],
+            "event_impact_chains": event_chains[:80],
             "map_layers": map_layers,
             "event_feed": event_feed,
             "corridor_strip": corridor_strip,
@@ -1308,7 +1349,8 @@ class MarketIntelligenceService:
             upsert=True,
         )
         docs = await self._event_evidence_docs(event, limit=60)
-        prompt = self._event_analysis_prompt(event, docs)
+        event_stock_candidates = await self._event_stock_candidates(event, limit=10)
+        prompt = self._event_analysis_prompt(event, docs, event_stock_candidates)
         llm_result = await get_llm_task_router().chat_jsonish(
             task_type="event_impact",
             messages=[
@@ -1317,7 +1359,7 @@ class MarketIntelligenceService:
             ],
             temperature=0.15,
         )
-        fallback = self._fallback_event_analysis(event, docs)
+        fallback = self._fallback_event_analysis(event, docs, event_stock_candidates)
         analysis = {
             "event_id": event_id,
             "event_title": event.get("title"),
@@ -1331,6 +1373,7 @@ class MarketIntelligenceService:
             "usage": llm_result.get("usage") or {},
             "error": llm_result.get("error"),
             "event": event,
+            "stock_candidates": event_stock_candidates,
             "evidence": [_jsonable(doc) for doc in docs[:20]],
         }
         await self.db.event_impact_analyses.replace_one({"event_id": event_id}, analysis, upsert=True)
@@ -1831,13 +1874,150 @@ class MarketIntelligenceService:
         scored.sort(key=lambda item: (item[0], _parse_dt(item[1].get("published_at"))), reverse=True)
         return [doc for _, doc in scored[:limit]]
 
-    def _event_analysis_prompt(self, event: Dict[str, Any], docs: List[Dict[str, Any]]) -> str:
+    async def _event_stock_candidates(self, event: Dict[str, Any], *, limit: int = 10) -> List[Dict[str, Any]]:
+        await self._ensure_indexes()
+        event_text = f"{event.get('title', '')} {event.get('summary', '')} {event.get('location_name', '')} {event.get('region', '')}"
+        event_text_lower = event_text.lower()
+        mapped_themes = list(dict.fromkeys(event.get("mapped_themes") or []))
+        candidates: Dict[str, Dict[str, Any]] = {}
+
+        def add_candidate(code: Any, *, name: str = "", reason: str = "", theme: str = "", source: str = "", base_score: float = 50.0) -> None:
+            clean = _normalize_code(code)
+            if not clean:
+                return
+            item = candidates.setdefault(clean, {
+                "code": clean,
+                "name": name,
+                "theme": theme,
+                "candidate_reason": reason,
+                "candidate_source": source,
+                "event_relevance_score": 0.0,
+            })
+            if name and not item.get("name"):
+                item["name"] = name
+            if theme and not item.get("theme"):
+                item["theme"] = theme
+            if reason and reason not in str(item.get("candidate_reason") or ""):
+                item["candidate_reason"] = "；".join(filter(None, [item.get("candidate_reason"), reason]))[:260]
+            item["event_relevance_score"] = max(_safe_float(item.get("event_relevance_score")), base_score)
+
+        for code in event.get("mapped_stocks") or []:
+            add_candidate(code, reason="事件证据直接映射到该股票", source="event_symbol", base_score=88.0)
+
+        for stock in self._event_stock_hints_for_text(event_text, mapped_themes, limit=12):
+            add_candidate(
+                stock.get("code"),
+                name=stock.get("name", ""),
+                reason=stock.get("candidate_reason", ""),
+                theme=stock.get("theme", ""),
+                source="event_stock_hint",
+                base_score=_safe_float(stock.get("event_relevance_score"), 94.0),
+            )
+
+        if mapped_themes:
+            signal_query = {
+                "$or": [
+                    {"theme": {"$in": mapped_themes}},
+                    {"matched_themes": {"$in": mapped_themes}},
+                ]
+            }
+            signal_cursor = self.db.stock_signals.find(signal_query).sort([("signal_date", -1), ("score", -1)]).limit(40)
+            async for signal in signal_cursor:
+                theme = signal.get("theme") or next((theme for theme in mapped_themes if theme in (signal.get("matched_themes") or [])), mapped_themes[0])
+                add_candidate(
+                    signal.get("code"),
+                    name=signal.get("name", ""),
+                    reason=f"已在最新股票机会池中匹配主题：{theme}",
+                    theme=theme,
+                    source="stock_signal",
+                    base_score=min(72.0, 42.0 + _safe_float(signal.get("score")) * 0.28),
+                )
+
+        for theme in mapped_themes[:4]:
+            hints = THEME_INDUSTRY_HINTS.get(theme) or []
+            if not hints:
+                continue
+            regex = "|".join(re.escape(hint) for hint in hints[:18] if hint)
+            if not regex:
+                continue
+            basics = await self.db.stock_basic_info.find(
+                {"$or": [{"industry": {"$regex": regex}}, {"name": {"$regex": regex}}]},
+                {"_id": 0, "code": 1, "symbol": 1, "name": 1, "industry": 1, "total_mv": 1},
+            ).sort("total_mv", -1).limit(18).to_list(length=18)
+            for basic in basics:
+                add_candidate(
+                    basic.get("code") or basic.get("symbol"),
+                    name=basic.get("name", ""),
+                    reason=f"公司行业/名称处于事件主题产业链：{theme}",
+                    theme=theme,
+                    source="stock_basic_theme_scan",
+                    base_score=58.0,
+                )
+
+        if not candidates:
+            return []
+
+        codes = list(candidates)
+        basics = {
+            _normalize_code(doc.get("code") or doc.get("symbol")): doc
+            for doc in await self.db.stock_basic_info.find(
+                {"$or": [{"code": {"$in": codes}}, {"symbol": {"$in": codes}}]},
+                {"_id": 0, "code": 1, "symbol": 1, "name": 1, "industry": 1, "total_mv": 1},
+            ).to_list(length=len(codes) * 2)
+        }
+        quotes = {
+            _normalize_code(doc.get("code") or doc.get("symbol")): doc
+            for doc in await self.db.market_quotes.find(
+                {"$or": [{"code": {"$in": codes}}, {"symbol": {"$in": codes}}]},
+                {"_id": 0, "code": 1, "symbol": 1, "name": 1, "pct_chg": 1, "amount": 1, "price": 1, "close": 1},
+            ).to_list(length=len(codes) * 2)
+        }
+        signals: Dict[str, Dict[str, Any]] = {}
+        signal_docs = await self.db.stock_signals.find({"code": {"$in": codes}}).sort([("signal_date", -1), ("score", -1)]).to_list(length=len(codes) * 2)
+        for doc in signal_docs:
+            clean = _normalize_code(doc.get("code"))
+            if clean and clean not in signals:
+                signals[clean] = doc
+
+        results: List[Dict[str, Any]] = []
+        for code, item in candidates.items():
+            basic = basics.get(code) or {}
+            quote = quotes.get(code) or {}
+            signal = signals.get(code) or {}
+            name = item.get("name") or basic.get("name") or quote.get("name") or signal.get("name") or code
+            if not self._is_a_share_candidate(code, str(name)):
+                continue
+            signal_score = _safe_float(signal.get("score"), 45.0)
+            amount_score = _sigmoid_score(_safe_float(quote.get("amount")) / 1_000_000_000, midpoint=1.5, scale=1.8) if quote else 42.0
+            final_score = min(100.0, item["event_relevance_score"] * 0.52 + signal_score * 0.30 + amount_score * 0.18)
+            results.append({
+                "code": code,
+                "name": name,
+                "industry": basic.get("industry") or signal.get("industry") or "",
+                "theme": item.get("theme") or signal.get("theme") or (mapped_themes[0] if mapped_themes else "事件映射"),
+                "score": round(final_score, 2),
+                "event_relevance_score": round(item["event_relevance_score"], 2),
+                "signal_strength": signal.get("signal_strength"),
+                "pct_chg": quote.get("pct_chg"),
+                "amount": quote.get("amount"),
+                "candidate_reason": item.get("candidate_reason") or "按事件主题和产业链暴露筛选",
+                "candidate_source": item.get("candidate_source"),
+            })
+        results.sort(key=lambda item: (_safe_float(item.get("event_relevance_score")), _safe_float(item.get("score"))), reverse=True)
+        return _jsonable(results[:limit])
+
+    def _event_analysis_prompt(self, event: Dict[str, Any], docs: List[Dict[str, Any]], stock_candidates: Optional[List[Dict[str, Any]]] = None) -> str:
         evidence_lines = []
         for doc in docs[:18]:
             metadata = doc.get("metadata") or {}
             lens = metadata.get("intel_lens") or metadata.get("public_source_category") or doc.get("document_type")
             evidence_lines.append(
                 f"- [{doc.get('source')} / {lens}] {doc.get('title')} ({_jsonable(doc.get('published_at'))})"
+            )
+        stock_lines = []
+        for stock in (stock_candidates or [])[:10]:
+            stock_lines.append(
+                f"- {stock.get('name')}({stock.get('code')})｜主题:{stock.get('theme')}｜事件相关:{stock.get('event_relevance_score')}｜理由:{stock.get('candidate_reason')}"
             )
         category = event.get("source_category") or "market"
         lens = event.get("intel_lens") or "市场证据"
@@ -1849,22 +2029,34 @@ class MarketIntelligenceService:
             f"影响资产: {', '.join(event.get('affected_assets') or [])}\n"
             f"传导渠道: {', '.join(event.get('transmission_channels') or [])}\n"
             f"A股主题: {', '.join(event.get('mapped_themes') or [])}\n\n"
+            "候选股票池（只能作为观察候选，需结合资金/估值/基本面确认，不要硬说买入）:\n"
+            + ("\n".join(stock_lines) if stock_lines else "- 暂无候选股票，必须说明缺口和需要补充的数据")
+            + "\n\n"
             "证据:\n" + "\n".join(evidence_lines) + "\n\n"
             "请按以下结构输出：1事件判断；2宏观变量/资产变量；3产业链和供应链传导；"
             "4受益/受损行业；5A股主题和个股观察；6证据强度与缺口；7是否price in；8交易确认条件；9失效条件。"
         )
 
-    def _fallback_event_analysis(self, event: Dict[str, Any], docs: List[Dict[str, Any]]) -> str:
+    def _fallback_event_analysis(
+        self,
+        event: Dict[str, Any],
+        docs: List[Dict[str, Any]],
+        stock_candidates: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
         themes = "、".join(event.get("mapped_themes") or []) or "等待主题映射"
         assets = "、".join(event.get("affected_assets") or []) or "等待资产映射"
         channels = "、".join(event.get("transmission_channels") or []) or "等待传导渠道确认"
         evidence = "\n".join(f"- {doc.get('title')}（{doc.get('source')}）" for doc in docs[:8]) or "- 暂无更多证据"
+        stock_lines = "\n".join(
+            f"- {stock.get('name')}({stock.get('code')})：{stock.get('candidate_reason')}"
+            for stock in (stock_candidates or [])[:8]
+        ) or "等待资金、量价、公告和研报进一步确认。"
         return (
             f"## 事件判断\n{event.get('title')}\n\n"
             f"## 资产与变量\n{assets}\n\n"
             f"## 传导渠道\n{channels}\n\n"
             f"## A股主题\n{themes}\n\n"
-            "## 个股映射\n等待资金、量价、公告和研报进一步确认。\n\n"
+            f"## 个股映射\n{stock_lines}\n\n"
             "## 证据\n"
             f"{evidence}\n\n"
             "## 失效条件\n若后续新闻降温、相关商品/汇率未响应、A股映射行业无资金确认，则按低置信度处理。"
@@ -2633,11 +2825,18 @@ class MarketIntelligenceService:
             event_id = hashlib.sha1(
                 f"{doc.get('doc_key')}|{rule['name']}".encode("utf-8")
             ).hexdigest()[:24]
+            event_type_value = rule.get("event_type") or self._event_type(text)
             event_themes = sorted(set(rule.get("themes", []) + doc.get("themes", [])))
+            if event_type_value == "commodity" and "金融地产" in event_themes:
+                macro_terms = ["美联储", "央行", "利率", "汇率", "美债", "美元指数", "fed", "federal reserve", "rate", "dxy", "yield"]
+                if not any(term.lower() in text.lower() for term in macro_terms):
+                    event_themes = [theme for theme in event_themes if theme != "金融地产"]
+            direct_stock_hints = self._event_stock_hints_for_text(text, event_themes, limit=8)
+            mapped_stock_codes = list(dict.fromkeys([*(doc.get("symbols", []) or []), *(stock.get("code") for stock in direct_stock_hints if stock.get("code"))]))
             metadata = doc.get("metadata") or {}
             event = {
                 "event_id": event_id,
-                "event_type": rule.get("event_type") or self._event_type(text),
+                "event_type": event_type_value,
                 "title": doc.get("title"),
                 "summary": doc.get("summary") or doc.get("content", "")[:240],
                 "source": doc.get("source"),
@@ -2658,7 +2857,8 @@ class MarketIntelligenceService:
                 "affected_assets": rule.get("affected_assets", []),
                 "transmission_channels": rule.get("transmission_channels", []),
                 "mapped_themes": event_themes,
-                "mapped_stocks": doc.get("symbols", []),
+                "mapped_stocks": mapped_stock_codes,
+                "stock_hints": direct_stock_hints,
                 "map_layers": self._event_layers_for_event(text, doc, rule),
                 "document_key": doc.get("doc_key"),
                 "source_category": metadata.get("public_source_category"),
@@ -2709,9 +2909,72 @@ class MarketIntelligenceService:
             "severity_bias": profile.get("severity_bias", 0),
             "event_type": event_type,
         }
+        commodity_override = self._commodity_rule_override(text)
+        if commodity_override:
+            rule.update(commodity_override)
         if rule.get("lat") is None or rule.get("lon") is None:
             return None
         return rule
+
+    def _commodity_rule_override(self, text: str) -> Optional[Dict[str, Any]]:
+        normalized = (text or "").lower()
+        if any(keyword in normalized for keyword in ["钯", "钯金", "palladium", "铂", "铂金", "platinum", "铂族", "贵金属"]):
+            return {
+                "event_type": "commodity",
+                "affected_assets": ["钯金", "铂金", "贵金属", "汽车催化剂", "矿山供给"],
+                "transmission_channels": ["贵金属价格", "汽车尾气催化成本", "铂钯替代", "矿山供给", "资源股估值"],
+                "themes": ["资源通胀", "新能源", "消费出海"],
+                "severity_bias": 11,
+            }
+        if any(keyword in normalized for keyword in ["原油", "石油", "wti", "brent", "crude", "oil", "opec"]):
+            return {
+                "event_type": "commodity",
+                "affected_assets": ["原油", "成品油", "天然气", "油运", "通胀预期"],
+                "transmission_channels": ["能源价格", "炼化价差", "运输保险", "通胀预期", "资源股估值"],
+                "themes": ["资源通胀", "消费出海"],
+                "severity_bias": 13,
+            }
+        if any(keyword in normalized for keyword in ["铜", "copper"]):
+            return {
+                "event_type": "commodity",
+                "affected_assets": ["铜", "有色金属", "新能源材料", "工业需求"],
+                "transmission_channels": ["工业金属价格", "库存周期", "电网/新能源需求", "资源股估值"],
+                "themes": ["资源通胀", "新能源"],
+                "severity_bias": 10,
+            }
+        return None
+
+    def _event_stock_hints_for_text(
+        self,
+        text: str,
+        mapped_themes: Optional[List[str]] = None,
+        *,
+        limit: int = 8,
+    ) -> List[Dict[str, Any]]:
+        normalized = (text or "").lower()
+        themes = mapped_themes or []
+        results: List[Dict[str, Any]] = []
+        seen_codes: set[str] = set()
+        for hint in EVENT_STOCK_HINTS:
+            if not any(keyword.lower() in normalized for keyword in hint.get("keywords", [])):
+                continue
+            hint_theme = next((theme for theme in hint.get("themes", []) if theme in themes), (hint.get("themes") or ["事件映射"])[0])
+            for stock in hint.get("stocks", []):
+                code = _normalize_code(stock.get("code"))
+                if not code or code in seen_codes:
+                    continue
+                seen_codes.add(code)
+                results.append({
+                    "code": code,
+                    "name": stock.get("name") or code,
+                    "theme": hint_theme,
+                    "candidate_reason": stock.get("reason") or "按事件关键词和产业链暴露直接映射",
+                    "candidate_source": "event_stock_hint",
+                    "event_relevance_score": 94.0,
+                })
+                if len(results) >= limit:
+                    return results
+        return results
 
     def _location_hint_for_text(self, text: str) -> Optional[Dict[str, Any]]:
         normalized = text or ""
@@ -2744,7 +3007,7 @@ class MarketIntelligenceService:
             return "natural_disaster"
         if any(word in text for word in ["美联储", "央行", "CPI", "美元", "利率", "汇率"]):
             return "macro"
-        if any(word in text for word in ["原油", "黄金", "铜", "煤炭", "大宗"]):
+        if any(word in text for word in ["原油", "黄金", "铜", "钯", "铂", "贵金属", "煤炭", "大宗"]):
             return "commodity"
         if any(word in text for word in ["冲突", "战争", "制裁", "封锁", "袭击"]):
             return "geopolitical"
@@ -3627,13 +3890,43 @@ class MarketIntelligenceService:
         chains = []
         stock_by_theme: Dict[str, List[Dict[str, Any]]] = {}
         for stock in stocks:
-            stock_by_theme.setdefault(stock.get("theme") or "未分类", []).append(stock)
+            for theme in [stock.get("theme"), *(stock.get("matched_themes") or [])]:
+                if theme:
+                    stock_by_theme.setdefault(theme, []).append(stock)
         theme_names = {theme["name"] for theme in themes}
         for event in events:
             mapped_themes = [theme for theme in event.get("mapped_themes", []) if theme in theme_names]
             selected_stocks = []
+            seen_codes = set()
+            for stock in event.get("stock_hints") or []:
+                code = stock.get("code")
+                if code and code in seen_codes:
+                    continue
+                selected_stocks.append(stock)
+                if code:
+                    seen_codes.add(code)
+                if len(selected_stocks) >= 8:
+                    break
+            for code in event.get("mapped_stocks") or []:
+                clean = _normalize_code(code)
+                if not clean or clean in seen_codes or len(selected_stocks) >= 8:
+                    continue
+                selected_stocks.append({"code": clean, "name": clean, "theme": mapped_themes[0] if mapped_themes else "事件映射"})
+                seen_codes.add(clean)
             for theme in mapped_themes:
-                selected_stocks.extend(stock_by_theme.get(theme, [])[:3])
+                if len(selected_stocks) >= 8:
+                    break
+                for stock in stock_by_theme.get(theme, [])[:5]:
+                    code = stock.get("code")
+                    if code and code in seen_codes:
+                        continue
+                    selected_stocks.append(stock)
+                    if code:
+                        seen_codes.add(code)
+                    if len(selected_stocks) >= 8:
+                        break
+                if len(selected_stocks) >= 8:
+                    break
             chains.append({
                 "event_id": event.get("event_id"),
                 "event_title": event.get("title"),
