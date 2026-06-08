@@ -99,7 +99,7 @@ class UserService:
                     "system_maintenance_notification": True
                 },
                 "daily_quota": 1000,
-                "concurrent_limit": 3,
+                "concurrent_limit": 4,
                 "total_analyses": 0,
                 "successful_analyses": 0,
                 "failed_analyses": 0,

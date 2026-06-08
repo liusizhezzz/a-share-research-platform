@@ -2,6 +2,8 @@
 队列服务用到的 Redis 键名与配置常量（集中定义）
 """
 
+import os
+
 # Redis键名常量
 READY_LIST = "qa:ready"
 
@@ -17,8 +19,7 @@ USER_PROCESSING_PREFIX = "qa:user_processing:"
 GLOBAL_CONCURRENT_KEY = "qa:global_concurrent"
 VISIBILITY_TIMEOUT_PREFIX = "qa:visibility:"
 
-# 配置常量 - 开源版限制
-DEFAULT_USER_CONCURRENT_LIMIT = 3
-GLOBAL_CONCURRENT_LIMIT = 3  # 开源版全局最大并发限制为3
+# 配置常量
+DEFAULT_USER_CONCURRENT_LIMIT = int(os.getenv("DEFAULT_USER_CONCURRENT_LIMIT", "4"))
+GLOBAL_CONCURRENT_LIMIT = int(os.getenv("GLOBAL_CONCURRENT_LIMIT", "4"))
 VISIBILITY_TIMEOUT_SECONDS = 300  # 5分钟
-

@@ -13,6 +13,7 @@ import uuid
 import asyncio
 
 from app.routers.auth_db import get_current_user
+from app.core.config import settings
 from app.services.queue_service import get_queue_service, QueueService
 from app.services.analysis_service import get_analysis_service
 from app.services.simple_analysis_service import get_simple_analysis_service
@@ -860,8 +861,8 @@ async def submit_batch_analysis(
         if not stock_symbols:
             raise ValueError("股票代码列表不能为空")
 
-        # 🔧 限制批量分析的股票数量（最多10个）
-        MAX_BATCH_SIZE = 10
+        # 🔧 限制批量分析的股票数量；实际并发由 ANALYSIS_MAX_WORKERS 控制。
+        MAX_BATCH_SIZE = int(getattr(settings, "ANALYSIS_BATCH_MAX_SIZE", 12))
         if len(stock_symbols) > MAX_BATCH_SIZE:
             raise ValueError(f"批量分析最多支持 {MAX_BATCH_SIZE} 个股票，当前提交了 {len(stock_symbols)} 个")
 

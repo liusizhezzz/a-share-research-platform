@@ -86,7 +86,7 @@ class User(BaseModel):
     
     # 配额和限制
     daily_quota: int = 1000
-    concurrent_limit: int = 3
+    concurrent_limit: int = 4
     
     # 统计信息
     total_analyses: int = 0

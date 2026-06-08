@@ -103,7 +103,7 @@ export const useAuthStore = defineStore('auth', {
         successfulAnalyses: this.user?.successful_analyses || 0,
         failedAnalyses: this.user?.failed_analyses || 0,
         dailyQuota: this.user?.daily_quota || 1000,
-        concurrentLimit: this.user?.concurrent_limit || 3
+        concurrentLimit: this.user?.concurrent_limit || 4
       }
     }
   },
