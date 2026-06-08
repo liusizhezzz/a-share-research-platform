@@ -542,7 +542,7 @@ const scoreClusterEvent = (cluster: EventCluster, event: GlobalEvent) => {
   if (isCommentOnly && !hasTitleMatch && tokenOverlapCount < 2) {
     return 0
   }
-  if (!hasTitleMatch && !hasSymbolMatch && tokenOverlapCount < 2) {
+  if (!hasTitleMatch && tokenOverlapCount < 2) {
     return 0
   }
   if (hasTitleMatch) {

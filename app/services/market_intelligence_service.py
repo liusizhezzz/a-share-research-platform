@@ -948,9 +948,10 @@ class MarketIntelligenceService:
         }
         tokens = set()
         for token in re.findall(r"[\u4e00-\u9fa5A-Za-z0-9]{2,}", value or ""):
-            if token in stop_words:
+            normalized = token.lower()
+            if normalized in stop_words:
                 continue
-            tokens.add(token.lower())
+            tokens.add(normalized)
         return tokens
 
     def _score_cluster_event_link(self, cluster: Dict[str, Any], event: Dict[str, Any]) -> float:
@@ -986,7 +987,7 @@ class MarketIntelligenceService:
         is_comment_only = bool(cluster_doc_types) and cluster_doc_types <= {"social_comment"}
         if is_comment_only and not has_title_match and not has_token_match:
             return 0.0
-        if not (has_title_match or has_symbol_match or has_token_match):
+        if not (has_title_match or has_token_match):
             return 0.0
         if has_title_match:
             score += 36.0
