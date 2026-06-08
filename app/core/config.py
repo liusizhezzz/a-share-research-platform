@@ -279,7 +279,7 @@ class Settings(BaseSettings):
     # ===== 开盘前投资日报配置 =====
     INVESTMENT_DAILY_ENABLED: bool = Field(default=True)
     INVESTMENT_DAILY_CRON: str = Field(default="40 8 * * 1-5", description="开盘前投资日报CRON表达式")
-    INVESTMENT_DAILY_HOURS_BACK: int = Field(default=36, ge=6, le=168)
+    INVESTMENT_DAILY_HOURS_BACK: int = Field(default=168, ge=6, le=168)
     INVESTMENT_DAILY_NEWS_LIMIT: int = Field(default=80, ge=10, le=300)
     INVESTMENT_DAILY_MAX_STOCKS: int = Field(default=10, ge=3, le=30)
     INVESTMENT_DAILY_SIGNAL_DIR: str = Field(default="./data/quant_signals")

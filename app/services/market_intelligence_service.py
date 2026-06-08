@@ -655,12 +655,14 @@ class MarketIntelligenceService:
     async def build_dashboard(self, *, hours: int = 36) -> Dict[str, Any]:
         await self._ensure_indexes()
         cutoff = _utc_now() - timedelta(hours=hours)
+        doc_limit = 1200 if hours >= 120 else 500
+        event_limit = 300 if hours >= 120 else 140
         documents = await self.db.market_documents.find(
             {"published_at": {"$gte": cutoff}}
-        ).sort("published_at", -1).limit(300).to_list(length=300)
+        ).sort("published_at", -1).limit(doc_limit).to_list(length=doc_limit)
         events = await self.db.global_events.find(
             {"published_at": {"$gte": cutoff}}
-        ).sort("published_at", -1).limit(120).to_list(length=120)
+        ).sort("published_at", -1).limit(event_limit).to_list(length=event_limit)
         events = [self._ensure_event_layers(event) for event in events]
         latest_report = await self.db.market_intelligence_reports.find_one(sort=[("generated_at", -1)])
         latest_run = await self.db.crawler_runs.find_one(sort=[("ended_at", -1)])
@@ -1832,12 +1834,14 @@ class MarketIntelligenceService:
 
     async def build_dashboard_without_status(self, *, hours: int = 36) -> Dict[str, Any]:
         cutoff = _utc_now() - timedelta(hours=hours)
+        doc_limit = 1200 if hours >= 120 else 500
+        event_limit = 300 if hours >= 120 else 140
         documents = await self.db.market_documents.find(
             {"published_at": {"$gte": cutoff}}
-        ).sort("published_at", -1).limit(300).to_list(length=300)
+        ).sort("published_at", -1).limit(doc_limit).to_list(length=doc_limit)
         events = await self.db.global_events.find(
             {"published_at": {"$gte": cutoff}}
-        ).sort("published_at", -1).limit(100).to_list(length=100)
+        ).sort("published_at", -1).limit(event_limit).to_list(length=event_limit)
         events = [self._ensure_event_layers(event) for event in events]
         theme_nodes = self._build_theme_heatmap(documents, events)
         stock_opportunities = await self._build_stock_opportunities(documents, theme_nodes, events)

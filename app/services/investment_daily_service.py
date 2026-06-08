@@ -68,6 +68,8 @@ MARKET_KEYWORDS = [
     "人工智能", "半导体", "机器人", "新能源", "军工", "黄金",
 ]
 
+INVESTMENT_DAILY_SIGNAL_WINDOW_HOURS = 168
+
 
 @dataclass
 class SourceStatus:
@@ -287,17 +289,18 @@ class InvestmentDailyService:
 
         source_statuses: List[SourceStatus] = []
 
-        candidates = await self._load_candidates(source_statuses)
+        window_hours = self._daily_window_hours()
+        candidates = await self._load_candidates(source_statuses, hours=window_hours)
         candidate_codes = [c.code for c in candidates[: settings.INVESTMENT_DAILY_MAX_STOCKS]]
 
-        market_news = await self._collect_market_news(source_statuses)
+        market_news = await self._collect_market_news(source_statuses, hours_back=window_hours)
         international_news = [
             item for item in market_news
             if self._matches_keywords(item.get("title", "") + item.get("content", ""), GLOBAL_KEYWORDS)
         ]
-        stock_news = await self._collect_stock_news(candidate_codes, source_statuses)
+        stock_news = await self._collect_stock_news(candidate_codes, source_statuses, hours_back=window_hours)
         guba_posts = await self._collect_guba_posts(candidate_codes[:8], source_statuses)
-        rolling = await self._load_rolling_evidence(candidate_codes, source_statuses)
+        rolling = await self._load_rolling_evidence(candidate_codes, source_statuses, hours=window_hours)
         market_news.extend(rolling.get("market_news", []))
         stock_news.extend(rolling.get("stock_news", []))
         guba_posts.extend(rolling.get("social_comments", []))
@@ -324,6 +327,7 @@ class InvestmentDailyService:
             "event_clusters": event_clusters[:20],
             "social_comments": guba_posts[:30],
             "strategy_inputs": [candidate.__dict__ for candidate in candidates[:30]],
+            "analysis_window_hours": window_hours,
             "sources": [status.__dict__ for status in source_statuses],
             "risk_warnings": self._build_risk_warnings(international_news, all_news),
             "markdown": "",
@@ -415,11 +419,23 @@ class InvestmentDailyService:
         )
         return {"status": "submitted", "task_ids": task_ids, "mapping": mapping, "count": len(task_ids)}
 
-    async def _load_candidates(self, statuses: List[SourceStatus]) -> List[Candidate]:
+    def _daily_window_hours(self) -> int:
+        return max(settings.INVESTMENT_DAILY_HOURS_BACK, INVESTMENT_DAILY_SIGNAL_WINDOW_HOURS)
+
+    async def _load_candidates(self, statuses: List[SourceStatus], *, hours: Optional[int] = None) -> List[Candidate]:
         merged: Dict[str, Candidate] = {}
 
-        for candidate in await self._load_strategy_signal_files(statuses):
+        for candidate in await self._load_market_intelligence_candidates(statuses, hours=hours or self._daily_window_hours()):
             merged[candidate.code] = candidate
+
+        for candidate in await self._load_strategy_signal_files(statuses):
+            if candidate.code not in merged:
+                merged[candidate.code] = candidate
+            else:
+                merged[candidate.code].source += "+量化"
+                merged[candidate.code].score += min(8, candidate.score / 10)
+                merged[candidate.code].reason = f"{merged[candidate.code].reason}；量化信号补充：{candidate.reason}"
+                merged[candidate.code].metadata["quant_signal"] = candidate.metadata
 
         for candidate in await self._load_favorites(statuses):
             if candidate.code not in merged:
@@ -438,6 +454,46 @@ class InvestmentDailyService:
         values = list(merged.values())
         values.sort(key=lambda item: item.score, reverse=True)
         return values[: max(settings.INVESTMENT_DAILY_MAX_STOCKS * 2, 20)]
+
+    async def _load_market_intelligence_candidates(self, statuses: List[SourceStatus], *, hours: int) -> List[Candidate]:
+        """Reuse the market-intelligence stock engine so the daily report and dashboard agree."""
+        try:
+            from app.services.market_intelligence_service import get_market_intelligence_service
+
+            service = await get_market_intelligence_service()
+            dashboard = await service.build_dashboard_without_status(hours=hours)
+            stocks = dashboard.get("stock_opportunities") or []
+            themes = dashboard.get("theme_heatmap_nodes") or []
+            candidates: List[Candidate] = []
+            for stock in stocks[: max(settings.INVESTMENT_DAILY_MAX_STOCKS * 3, 30)]:
+                code = _normalize_code(stock.get("code"))
+                if not code:
+                    continue
+                theme = stock.get("theme") or "未映射"
+                reason = stock.get("candidate_reason") or stock.get("universe_source") or "市场情报统一候选池"
+                candidates.append(Candidate(
+                    code=code,
+                    name=str(stock.get("name") or ""),
+                    score=_safe_float(stock.get("score")),
+                    source="市场情报统一候选池",
+                    reason=f"{theme}：{reason}",
+                    metadata={
+                        "market_intelligence": stock,
+                        "window_hours": hours,
+                        "top_themes": [theme.get("name") for theme in themes[:6] if theme.get("name")],
+                    },
+                ))
+            statuses.append(SourceStatus(
+                "market_intelligence_candidates",
+                bool(candidates),
+                len(candidates),
+                f"复用市场情报候选池，窗口 {hours} 小时，主题 {len(themes)} 个",
+            ))
+            return candidates
+        except Exception as e:
+            logger.warning("读取市场情报候选池失败: %s", e, exc_info=True)
+            statuses.append(SourceStatus("market_intelligence_candidates", False, 0, str(e)))
+            return []
 
     async def _load_strategy_signal_files(self, statuses: List[SourceStatus]) -> List[Candidate]:
         directory = Path(settings.INVESTMENT_DAILY_SIGNAL_DIR)
@@ -538,10 +594,10 @@ class InvestmentDailyService:
             statuses.append(SourceStatus("market_quotes", False, 0, str(e)))
             return []
 
-    async def _load_rolling_evidence(self, codes: List[str], statuses: List[SourceStatus]) -> Dict[str, List[Dict[str, Any]]]:
+    async def _load_rolling_evidence(self, codes: List[str], statuses: List[SourceStatus], *, hours: Optional[int] = None) -> Dict[str, List[Dict[str, Any]]]:
         """Load the shared rolling evidence pool generated by market intelligence."""
         try:
-            cutoff = _utc_now() - timedelta(hours=settings.INVESTMENT_DAILY_HOURS_BACK)
+            cutoff = _utc_now() - timedelta(hours=hours or self._daily_window_hours())
             query = {"published_at": {"$gte": cutoff}}
             docs = await self.db.market_documents.find(query).sort("published_at", -1).limit(260).to_list(length=260)
             code_set = set(codes)
@@ -594,7 +650,7 @@ class InvestmentDailyService:
                     stock_news.append(item)
                 elif doc_type in {"news", "stock_news", "announcement", "research_report"}:
                     market_news.append(item)
-            statuses.append(SourceStatus("rolling_market_documents", bool(docs), len(docs), "读取5分钟滚动证据池"))
+            statuses.append(SourceStatus("rolling_market_documents", bool(docs), len(docs), f"读取5分钟滚动证据池，窗口 {hours or self._daily_window_hours()} 小时"))
             return {
                 "market_news": self._dedupe_items(market_news, ("url", "title")),
                 "stock_news": self._dedupe_items(stock_news, ("url", "title")),
@@ -655,7 +711,7 @@ class InvestmentDailyService:
         result.sort(key=lambda item: _parse_dt(item.get("last_published_at")), reverse=True)
         return result
 
-    async def _collect_market_news(self, statuses: List[SourceStatus]) -> List[Dict[str, Any]]:
+    async def _collect_market_news(self, statuses: List[SourceStatus], *, hours_back: Optional[int] = None) -> List[Dict[str, Any]]:
         items: List[Dict[str, Any]] = []
         max_per_keyword = max(3, settings.INVESTMENT_DAILY_NEWS_LIMIT // max(len(MARKET_KEYWORDS), 1))
         keyword_results = await self._run_limited(
@@ -666,12 +722,12 @@ class InvestmentDailyService:
             items.extend(result)
         cls_items = await self._fetch_cls_news(settings.INVESTMENT_DAILY_NEWS_LIMIT)
         items.extend(cls_items)
-        items = self._filter_recent(self._dedupe_items(items, ("url", "title")), settings.INVESTMENT_DAILY_HOURS_BACK)
+        items = self._filter_recent(self._dedupe_items(items, ("url", "title")), hours_back or self._daily_window_hours())
         items.sort(key=lambda item: _parse_dt(item.get("publish_time")), reverse=True)
-        statuses.append(SourceStatus("eastmoney_cls_market_news", bool(items), len(items), "东方财富搜索 + 财联社快讯"))
+        statuses.append(SourceStatus("eastmoney_cls_market_news", bool(items), len(items), f"东方财富搜索 + 财联社快讯，窗口 {hours_back or self._daily_window_hours()} 小时"))
         return items[: settings.INVESTMENT_DAILY_NEWS_LIMIT]
 
-    async def _collect_stock_news(self, codes: List[str], statuses: List[SourceStatus]) -> List[Dict[str, Any]]:
+    async def _collect_stock_news(self, codes: List[str], statuses: List[SourceStatus], *, hours_back: Optional[int] = None) -> List[Dict[str, Any]]:
         items: List[Dict[str, Any]] = []
         results = await self._run_limited(
             [self._fetch_eastmoney_search(code, 8, symbol=code) for code in codes[: settings.INVESTMENT_DAILY_MAX_STOCKS]],
@@ -679,7 +735,7 @@ class InvestmentDailyService:
         )
         for result in results:
             items.extend(result)
-        items = self._filter_recent(self._dedupe_items(items, ("url", "title")), settings.INVESTMENT_DAILY_HOURS_BACK)
+        items = self._filter_recent(self._dedupe_items(items, ("url", "title")), hours_back or self._daily_window_hours())
         statuses.append(SourceStatus("eastmoney_stock_news", bool(items), len(items), "东方财富个股搜索新闻"))
         return items
 
@@ -1088,63 +1144,91 @@ class InvestmentDailyService:
             code = candidate.code
             q = quotes.get(code, {})
             basic = basics.get(code, {})
+            intelligence = candidate.metadata.get("market_intelligence") if isinstance(candidate.metadata, dict) else None
+            intelligence = intelligence if isinstance(intelligence, dict) else {}
             related_news = [item for item in stock_news if item.get("symbol") == code][:8]
             related_posts = [item for item in guba_posts if item.get("symbol") == code][:8]
             news_sentiment = sum(_safe_float(n.get("sentiment_score")) for n in related_news)
             social_sentiment = sum(_safe_float(p.get("sentiment_score")) for p in related_posts)
-            pct = _safe_float(q.get("pct_chg"))
-            amount = _safe_float(q.get("amount"))
+            pct = _safe_float(q.get("pct_chg"), _safe_float(intelligence.get("pct_chg")))
+            amount = _safe_float(q.get("amount"), _safe_float(intelligence.get("amount")))
             theme_bonus = 0.0
             text = " ".join([n.get("title", "") for n in related_news] + [candidate.reason])
             for direction in direction_names:
                 if direction in text:
                     theme_bonus += 5.0
             price_in_penalty = max(0.0, pct - 6.5) * 3.0
+            intelligence_score = _safe_float(intelligence.get("score"), -1)
             quant_component = min(candidate.score, 60)
             momentum_component = max(min(pct, 6), -4) * 1.5
             liquidity_component = min(amount / 1_000_000_000, 8)
             news_component = news_sentiment * 8
             social_component = social_sentiment * 4
-            score = (
-                quant_component
-                + momentum_component
-                + liquidity_component
-                + news_component
-                + social_component
-                + theme_bonus
-                - price_in_penalty
-            )
+            if intelligence:
+                base_price_in_penalty = _safe_float(intelligence.get("price_in_penalty"), price_in_penalty)
+                price_in_penalty = base_price_in_penalty
+                score = (
+                    max(intelligence_score, candidate.score)
+                    + min(5.0, max(0.0, news_component) * 0.18 + max(0.0, social_component) * 0.14)
+                    + theme_bonus * 0.35
+                )
+            else:
+                score = (
+                    quant_component
+                    + momentum_component
+                    + liquidity_component
+                    + news_component
+                    + social_component
+                    + theme_bonus
+                    - price_in_penalty
+                )
+            intelligence_headlines = [h for h in (intelligence.get("headlines") or []) if h]
+            daily_headlines = [n.get("title", "") for n in related_news[:3] if n.get("title")]
+            intelligence_comments = [
+                str(doc.get("title") or doc.get("content") or "")
+                for doc in (intelligence.get("comments") or [])
+                if isinstance(doc, dict)
+            ][:3]
+            score_breakdown = intelligence.get("score_breakdown") if intelligence else None
+            if not isinstance(score_breakdown, dict):
+                score_breakdown = {
+                    "formula": "量化/候选来源 + 量价结构 + 成交额 + 新闻情绪 + 评论情绪 + 主题加成 - price-in惩罚",
+                    "input_values": {},
+                    "normalization_method": "涨幅超过6.5%开始price-in扣分；涨停/过热标的在候选源头过滤",
+                }
+            score_breakdown = {
+                **score_breakdown,
+                "input_values": {
+                    **(score_breakdown.get("input_values") or {}),
+                    "daily_window_hours": candidate.metadata.get("window_hours") if isinstance(candidate.metadata, dict) else None,
+                    "daily_news_component": round(news_component, 2),
+                    "daily_social_component": round(social_component, 2),
+                    "daily_theme_bonus": round(theme_bonus, 2),
+                    "daily_candidate_source": candidate.source,
+                },
+            }
             results.append({
                 "code": code,
-                "name": candidate.name or basic.get("name") or q.get("name") or code,
+                "name": candidate.name or intelligence.get("name") or basic.get("name") or q.get("name") or code,
                 "score": round(max(0.0, min(100.0, score)), 2),
                 "source": candidate.source,
                 "reason": candidate.reason,
-                "industry": basic.get("industry") or basic.get("market") or "-",
-                "price": q.get("close"),
+                "industry": basic.get("industry") or intelligence.get("industry") or basic.get("market") or "-",
+                "price": q.get("close") or intelligence.get("price"),
                 "pct_chg": pct,
                 "amount": amount,
                 "news_sentiment": round(news_sentiment, 3),
                 "social_sentiment": round(social_sentiment, 3),
-                "news_count": len(related_news),
-                "comment_count": len(related_posts),
-                "headlines": [n.get("title", "") for n in related_news[:3]],
-                "comments": [p.get("content", "") for p in related_posts[:3]],
-                "prediction_horizon": "下一次开盘至未来1-3个交易日",
+                "news_count": max(len(related_news), _safe_int(intelligence.get("news_count"))),
+                "comment_count": max(len(related_posts), _safe_int(intelligence.get("comment_count"))),
+                "headlines": list(dict.fromkeys(intelligence_headlines + daily_headlines))[:5],
+                "comments": list(dict.fromkeys([p.get("content", "") for p in related_posts[:3]] + intelligence_comments))[:5],
+                "prediction_horizon": intelligence.get("prediction_horizon") or "下一次开盘至未来1-3个交易日",
                 "price_in_penalty": round(price_in_penalty, 2),
-                "score_breakdown": {
-                    "formula": "量化/候选来源 + 量价结构 + 成交额 + 新闻情绪 + 评论情绪 + 主题加成 - price-in惩罚",
-                    "input_values": {
-                        "quant_component": round(quant_component, 2),
-                        "momentum_component": round(momentum_component, 2),
-                        "liquidity_component": round(liquidity_component, 2),
-                        "news_component": round(news_component, 2),
-                        "social_component": round(social_component, 2),
-                        "theme_bonus": round(theme_bonus, 2),
-                        "price_in_penalty": round(price_in_penalty, 2),
-                    },
-                    "normalization_method": "涨幅超过6.5%开始price-in扣分；涨停/过热标的在候选源头过滤",
-                },
+                "theme": intelligence.get("theme"),
+                "candidate_scope": intelligence.get("candidate_scope"),
+                "universe_source": intelligence.get("universe_source"),
+                "score_breakdown": score_breakdown,
             })
         results.sort(key=lambda item: item["score"], reverse=True)
         return results[: settings.INVESTMENT_DAILY_MAX_STOCKS]

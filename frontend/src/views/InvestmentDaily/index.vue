@@ -47,6 +47,7 @@
             <span>生成时间 {{ formatTime(report.generated_at) }}</span>
             <span>新闻 {{ report.market_temperature?.news_count || 0 }} 条</span>
             <span>候选 {{ report.stocks?.length || 0 }} 只</span>
+            <span>窗口 {{ windowLabel(report.analysis_window_hours) }}</span>
           </div>
         </div>
         <div class="temperature">
@@ -145,6 +146,9 @@
               <el-table-column label="线索" min-width="180">
                 <template #default="{ row }">
                   <div class="clue">{{ row.reason }}</div>
+                  <div v-if="row.candidate_scope || row.universe_source" class="sub-clue">
+                    {{ [row.candidate_scope, row.universe_source].filter(Boolean).join(' / ') }}
+                  </div>
                   <div v-if="row.headlines?.length" class="sub-clue">{{ row.headlines[0] }}</div>
                 </template>
               </el-table-column>
@@ -430,6 +434,13 @@ const newsTimeLabel = (item: DailyNewsItem) => {
 const formatPct = (value?: number) => {
   const num = Number(value || 0)
   return `${num > 0 ? '+' : ''}${num.toFixed(2)}%`
+}
+
+const windowLabel = (hours?: number) => {
+  const value = Number(hours || 0)
+  if (!value) return '-'
+  if (value >= 24) return `${Math.round(value / 24)}天`
+  return `${value}小时`
 }
 
 const priceClass = (value?: number) => {

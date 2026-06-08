@@ -17,6 +17,9 @@ export interface InvestmentStock {
   source: string
   reason: string
   industry: string
+  theme?: string
+  candidate_scope?: string
+  universe_source?: string
   price?: number
   pct_chg?: number
   amount?: number
@@ -89,6 +92,7 @@ export interface InvestmentDailyReport {
   social_comments: Array<DailyNewsItem & { content: string; symbol?: string }>
   sources: SourceStatus[]
   risk_warnings: string[]
+  analysis_window_hours?: number
   markdown?: string
   preanalysis?: {
     submitted_at?: string
