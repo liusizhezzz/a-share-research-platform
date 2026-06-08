@@ -306,6 +306,12 @@ class Settings(BaseSettings):
     MARKET_INTELLIGENCE_INTRADAY_1445_CRON: str = Field(default="45 14 * * 1-5")
     MARKET_INTELLIGENCE_CLOSING_REVIEW_CRON: str = Field(default="30 16 * * 1-5")
     MARKET_INTELLIGENCE_RESEARCH_DIGEST_CRON: str = Field(default="30 19 * * 1-5")
+    MARKET_INTELLIGENCE_PUBLIC_SOURCES_ENABLED: bool = Field(default=True)
+    MARKET_INTELLIGENCE_PUBLIC_SOURCE_INCLUDE_HTML: bool = Field(default=True)
+    MARKET_INTELLIGENCE_PUBLIC_SOURCE_MAX_SOURCES: int = Field(default=48, ge=1, le=120)
+    MARKET_INTELLIGENCE_PUBLIC_SOURCE_MAX_ITEMS: int = Field(default=10, ge=1, le=50)
+    MARKET_INTELLIGENCE_PUBLIC_SOURCE_CONCURRENCY: int = Field(default=4, ge=1, le=12)
+    MARKET_INTELLIGENCE_PUBLIC_SOURCE_TIMEOUT_SECONDS: int = Field(default=8, ge=3, le=30)
 
     @property
     def is_production(self) -> bool:

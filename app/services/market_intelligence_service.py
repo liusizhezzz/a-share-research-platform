@@ -39,6 +39,7 @@ from app.services.investment_daily_service import (
     get_investment_daily_service,
 )
 from app.services.llm_task_router import get_llm_task_router
+from app.services.public_intel_collector import get_public_intel_collector
 from app.utils.timezone import now_tz
 
 logger = logging.getLogger(__name__)
@@ -443,6 +444,10 @@ class MarketIntelligenceService:
             guba_posts = await daily._collect_guba_posts(codes[:8], statuses)
             reports = await self._fetch_research_reports(codes[:6])
             announcements = await self._fetch_announcements(daily, codes[:8])
+            public_items: List[Dict[str, Any]] = []
+            public_statuses: List[Dict[str, Any]] = []
+            if settings.MARKET_INTELLIGENCE_PUBLIC_SOURCES_ENABLED:
+                public_items, public_statuses = await get_public_intel_collector().collect(window_start=window_start)
 
             for status in statuses:
                 c = counter(status.name)
@@ -450,8 +455,15 @@ class MarketIntelligenceService:
                 c.message = status.message
                 if not status.ok:
                     c.failed += 1
+            for status in public_statuses:
+                c = counter(str(status.get("source") or "public_source"))
+                c.fetched += int(status.get("fetched") or 0)
+                c.saved += int(status.get("saved") or 0)
+                c.failed += int(status.get("failed") or 0)
+                c.message = str(status.get("message") or "")
 
             documents.extend(self._normalize_news_documents(market_news, "news", window_start))
+            documents.extend(self._normalize_news_documents(public_items, "news", window_start))
             documents.extend(self._normalize_news_documents(stock_news, "stock_news", window_start))
             documents.extend(self._normalize_social_documents(guba_posts, window_start))
             documents.extend(self._normalize_research_documents(reports, window_start))
@@ -459,6 +471,7 @@ class MarketIntelligenceService:
             documents.extend(self._normalize_quant_signal_documents(candidates))
 
             counter("market_documents").fetched = len(documents)
+            counter("public_global_sources").fetched = len(public_items)
             counter("announcements").fetched = len(announcements)
             counter("research_reports").fetched = len(reports)
             counter("quant_signal_files").fetched = max(counter("quant_signal_files").fetched, len(candidates))

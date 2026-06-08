@@ -9,6 +9,7 @@ langchain-experimental
 pandas
 yfinance
 praw
+beautifulsoup4>=4.12.0
 feedparser
 stockstats
 eodhd
