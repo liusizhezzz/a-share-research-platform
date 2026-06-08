@@ -34,7 +34,14 @@
     </el-tooltip>
 
     <!-- 通知抽屉（方案B） -->
-    <el-drawer v-model="drawerVisible" direction="rtl" size="360px" :with-header="true" title="消息中心">
+    <el-drawer
+      v-model="drawerVisible"
+      direction="rtl"
+      size="360px"
+      :with-header="true"
+      title="消息中心"
+      append-to-body
+    >
       <div class="notif-toolbar">
         <el-segmented v-model="filter" :options="[{label: '全部', value: 'all'}, {label: '未读', value: 'unread'}]" size="small" />
         <el-button size="small" text type="primary" @click="onMarkAllRead" :disabled="unreadCount===0">全部已读</el-button>
