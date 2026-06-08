@@ -978,7 +978,12 @@ class MarketIntelligenceService:
 
         cluster_title = str(cluster.get("title") or "")
         event_title = str(event.get("title") or "")
-        if cluster_title and event_title and (cluster_title in event_title or event_title in cluster_title):
+        has_title_match = bool(cluster_title and event_title and (cluster_title in event_title or event_title in cluster_title))
+        has_symbol_match = bool(symbol_overlap)
+        has_token_match = len(token_overlap) >= 2
+        if not (has_title_match or has_symbol_match or has_token_match):
+            return 0.0
+        if has_title_match:
             score += 36.0
 
         cluster_time = _parse_dt(cluster.get("last_published_at"))

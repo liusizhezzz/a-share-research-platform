@@ -534,7 +534,13 @@ const scoreClusterEvent = (cluster: EventCluster, event: GlobalEvent) => {
   clusterTokens.forEach((token) => {
     if (eventTokens.has(token)) score += 5
   })
-  if (cluster.title && event.title && (cluster.title.includes(event.title) || event.title.includes(cluster.title))) {
+  const hasTitleMatch = Boolean(cluster.title && event.title && (cluster.title.includes(event.title) || event.title.includes(cluster.title)))
+  const hasSymbolMatch = (cluster.symbols || []).some((symbol) => (event.mapped_stocks || []).includes(symbol))
+  const tokenOverlapCount = Array.from(clusterTokens).filter((token) => eventTokens.has(token)).length
+  if (!hasTitleMatch && !hasSymbolMatch && tokenOverlapCount < 2) {
+    return 0
+  }
+  if (hasTitleMatch) {
     score += 30
   }
   if (cluster.last_published_at && event.published_at) {
