@@ -316,7 +316,7 @@ export const marketIntelligenceApi = {
       {
         params: { force },
         timeout: 180000,
-        loadingText: '正在分析事件影响...'
+        skipErrorHandler: true
       }
     )
   },

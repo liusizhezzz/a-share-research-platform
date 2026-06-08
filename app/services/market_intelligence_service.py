@@ -822,11 +822,18 @@ class MarketIntelligenceService:
     async def analyze_event_impact(self, event_id: str, *, force: bool = False) -> Dict[str, Any]:
         await self._ensure_indexes()
         existing = await self.db.event_impact_analyses.find_one({"event_id": event_id})
-        if existing and not force and existing.get("status") == "ready":
-            return _jsonable(existing)
         event = await self.get_global_event(event_id)
         if not event:
             raise ValueError("global event not found")
+        if existing and not force:
+            if existing.get("event_title") and existing.get("event_title") != event.get("title"):
+                await self.db.event_impact_analyses.delete_one({"event_id": event_id})
+            elif existing.get("status") in {"ready", "partial"}:
+                return _jsonable(existing)
+            elif existing.get("status") == "running":
+                updated_at = _parse_dt(existing.get("updated_at"))
+                if (_utc_now() - updated_at).total_seconds() < 20 * 60:
+                    return _jsonable(existing)
         await self.db.event_impact_analyses.update_one(
             {"event_id": event_id},
             {"$set": {
@@ -837,12 +844,7 @@ class MarketIntelligenceService:
             }},
             upsert=True,
         )
-        docs = await self.db.market_documents.find(
-            {"$or": [
-                {"doc_key": event.get("document_key")},
-                {"themes": {"$in": event.get("mapped_themes") or []}},
-            ]}
-        ).sort("published_at", -1).limit(60).to_list(length=60)
+        docs = await self._event_evidence_docs(event, limit=60)
         prompt = self._event_analysis_prompt(event, docs)
         llm_result = await get_llm_task_router().chat_jsonish(
             task_type="event_impact",
@@ -873,6 +875,11 @@ class MarketIntelligenceService:
     async def get_event_analysis(self, event_id: str) -> Optional[Dict[str, Any]]:
         await self._ensure_indexes()
         doc = await self.db.event_impact_analyses.find_one({"event_id": event_id})
+        if doc:
+            event = await self.get_global_event(event_id)
+            if event and doc.get("event_title") and doc.get("event_title") != event.get("title"):
+                await self.db.event_impact_analyses.delete_one({"event_id": event_id})
+                return None
         return _jsonable(doc) if doc else None
 
     async def run_pre_market_enrichment(self) -> Dict[str, Any]:
@@ -1188,6 +1195,57 @@ class MarketIntelligenceService:
             "prediction_horizon": "下一次开盘至未来1-3个交易日",
             "not_buy_rule": "已大涨或涨停股票只有在新增催化、资金确认且price-in惩罚较低时保留为候选",
         }
+
+    async def _event_evidence_docs(self, event: Dict[str, Any], *, limit: int = 60) -> List[Dict[str, Any]]:
+        exact_key = event.get("document_key")
+        mapped_symbols = set(event.get("mapped_stocks") or [])
+        mapped_themes = event.get("mapped_themes") or []
+        query_parts: List[Dict[str, Any]] = []
+        if exact_key:
+            query_parts.append({"doc_key": exact_key})
+        if mapped_symbols:
+            query_parts.append({"symbols": {"$in": sorted(mapped_symbols)}})
+        if mapped_themes:
+            query_parts.append({"themes": {"$in": mapped_themes}})
+        if not query_parts:
+            return []
+
+        candidates = await self.db.market_documents.find({"$or": query_parts}).sort("published_at", -1).limit(220).to_list(length=220)
+        event_text = (
+            f"{event.get('title', '')} {event.get('summary', '')} {event.get('location_name', '')} "
+            f"{event.get('country', '')} {event.get('region', '')}"
+        )
+        event_tokens = self._event_cluster_tokens(event_text)
+        event_title = str(event.get("title") or "")
+        scored: List[Tuple[float, Dict[str, Any]]] = []
+        seen = set()
+        for doc in candidates:
+            doc_key = doc.get("doc_key") or str(doc.get("_id"))
+            if doc_key in seen:
+                continue
+            seen.add(doc_key)
+            doc_text = f"{doc.get('title', '')} {doc.get('summary', '')} {doc.get('content', '')}"
+            doc_tokens = self._event_cluster_tokens(doc_text)
+            token_overlap = event_tokens & doc_tokens
+            title = str(doc.get("title") or "")
+            score = 0.0
+            if exact_key and doc.get("doc_key") == exact_key:
+                score += 120.0
+            if event_title and title and (event_title in title or title in event_title):
+                score += 80.0
+            score += min(50.0, 8.0 * len(token_overlap))
+            symbol_overlap = mapped_symbols & set(doc.get("symbols") or [])
+            score += 18.0 * len(symbol_overlap)
+            if doc.get("source") == event.get("source"):
+                score += 8.0
+            # Themes are intentionally weak: they help rank already relevant docs,
+            # but cannot pull unrelated evidence into an event analysis.
+            theme_overlap = set(mapped_themes) & set(doc.get("themes") or [])
+            score += min(8.0, 2.0 * len(theme_overlap))
+            if score >= 16.0 or (exact_key and doc.get("doc_key") == exact_key):
+                scored.append((score, doc))
+        scored.sort(key=lambda item: (item[0], _parse_dt(item[1].get("published_at"))), reverse=True)
+        return [doc for _, doc in scored[:limit]]
 
     def _event_analysis_prompt(self, event: Dict[str, Any], docs: List[Dict[str, Any]]) -> str:
         evidence_lines = []

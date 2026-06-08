@@ -17,14 +17,14 @@
 
       <div class="section-title analysis-title">
         <span>AI 影响面分析</span>
-        <el-button size="small" type="primary" plain :loading="analyzing" @click="emit('analyze')">
-          {{ analysis ? '重新分析' : '开始分析' }}
+        <el-button size="small" type="primary" plain :loading="isPending" :disabled="isPending" @click="emit('analyze')">
+          {{ hasReadyAnalysis ? '重新分析' : isPending ? '分析中' : '开始分析' }}
         </el-button>
       </div>
-      <div v-if="analyzing" class="analysis-box loading">
-        正在分析事件、资产变量、传导渠道、A股主题、个股映射和风险反证...
+      <div v-if="isPending" class="analysis-box loading">
+        已加入队列，正在分析当前事件的资产变量、传导渠道、A股主题、个股映射和风险反证...
       </div>
-      <div v-else-if="analysis?.analysis_markdown" class="analysis-box">
+      <div v-else-if="hasReadyAnalysis" class="analysis-box">
         <div class="analysis-meta">
           <el-tag size="small" effect="plain">{{ analysis.model || 'DashScope' }}</el-tag>
           <span>{{ formatTime(analysis.updated_at) }}</span>
@@ -32,8 +32,11 @@
         </div>
         <div class="markdown-body" v-html="analysisHtml"></div>
       </div>
+      <div v-else-if="analysis?.status === 'error'" class="analysis-box empty">
+        当前事件分析失败，请稍后重新分析。
+      </div>
       <div v-else class="analysis-box empty">
-        点击“开始分析”，后端会基于当前新闻、事件、主题、个股和证据池生成影响链。
+        当前事件尚未分析。点击“开始分析”后，将只基于这个事件加入队列生成影响链。
       </div>
 
       <div class="section-title">传导路径</div>
@@ -86,6 +89,11 @@ const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   analyze: []
 }>()
+
+const isPending = computed(() => props.analyzing || ['queued', 'running'].includes(props.analysis?.status || ''))
+const hasReadyAnalysis = computed(() =>
+  ['ready', 'partial'].includes(props.analysis?.status || '') && Boolean(props.analysis?.analysis_markdown)
+)
 
 const analysisHtml = computed(() => {
   const markdown = props.analysis?.analysis_markdown || ''

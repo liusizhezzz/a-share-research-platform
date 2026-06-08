@@ -180,9 +180,9 @@
             </div>
             <h2>{{ selectedEvent.title }}</h2>
             <p>{{ selectedEvent.summary }}</p>
-            <div v-if="eventAnalyzing" class="analysis-status">正在分析：事件、资产变量、传导渠道、A股主题和个股映射...</div>
-            <div v-else-if="eventAnalysis?.status === 'ready' || eventAnalysis?.status === 'partial'" class="analysis-status ready">
-              AI 影响分析已生成 · {{ eventAnalysis.model || 'DashScope' }}
+            <div v-if="eventAnalyzing" class="analysis-status">已加入队列，正在分析：事件、资产变量、传导渠道、A股主题和个股映射...</div>
+            <div v-else-if="currentEventAnalysis?.status === 'ready' || currentEventAnalysis?.status === 'partial'" class="analysis-status ready">
+              AI 影响分析已生成 · {{ currentEventAnalysis.model || 'DashScope' }}
             </div>
           </div>
           <TransmissionSankeyChart :chain="selectedChain" />
@@ -253,7 +253,7 @@
         v-model="drawerVisible"
         :event="selectedEvent"
         :chain="selectedChain"
-        :analysis="eventAnalysis"
+        :analysis="currentEventAnalysis"
         :analyzing="eventAnalyzing"
         @analyze="analyzeSelectedEvent(true)"
       />
@@ -294,6 +294,7 @@ import {
   marketIntelligenceApi,
   type EventCluster,
   type EventImpactAnalysis,
+  type EventImpactChain,
   type GlobalEvent,
   type MarketIntelligenceDashboard,
   type StockOpportunity,
@@ -325,9 +326,10 @@ const selectedLayerIds = ref<string[]>([])
 const drawerVisible = ref(false)
 const methodologyVisible = ref(false)
 const methodology = ref<Record<string, any> | null>(null)
-const eventAnalysis = ref<EventImpactAnalysis | null>(null)
-const analyzingEventId = ref<string>()
+const eventAnalyses = ref<Record<string, EventImpactAnalysis>>({})
+const analyzingEventIds = ref<string[]>([])
 let refreshTimer: number | undefined
+const analysisPollTimers: Record<string, number> = {}
 
 const staleSources = computed(() =>
   (dashboard.value?.crawler_statuses || []).filter((source) => !source.ok && Number(source.lag_minutes || 0) > 15)
@@ -339,15 +341,45 @@ const selectedEvent = computed(() => {
   return events.find((event) => event.event_id === selectedEventId.value) || null
 })
 
+const normalizeEventText = (value?: string | null) =>
+  String(value || '')
+    .replace(/\s+/g, '')
+    .replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, '')
+    .toLowerCase()
+
+const isChainForEvent = (chain: EventImpactChain, event: GlobalEvent) => {
+  if (chain.event_id !== event.event_id) return false
+  const eventTitle = normalizeEventText(event.title)
+  const chainTitle = normalizeEventText(chain.event_title)
+  const firstStep = normalizeEventText(chain.steps?.[0]?.value)
+  if (!eventTitle) return true
+  return (
+    Boolean(chainTitle && (chainTitle.includes(eventTitle) || eventTitle.includes(chainTitle))) ||
+    Boolean(firstStep && (firstStep.includes(eventTitle) || eventTitle.includes(firstStep)))
+  )
+}
+
 const selectedChain = computed(() => {
   const chains = dashboard.value?.event_impact_chains || []
-  const eventId = selectedEvent.value?.event_id
+  const event = selectedEvent.value
+  const eventId = event?.event_id
   const exact = chains.find((chain) => chain.event_id === eventId)
-  if (exact) return exact
-  return selectedEvent.value ? buildLocalImpactChain(selectedEvent.value) : null
+  if (event && exact && isChainForEvent(exact, event)) return exact
+  return event ? buildLocalImpactChain(event) : null
 })
 
-const eventAnalyzing = computed(() => Boolean(analyzingEventId.value && analyzingEventId.value === selectedEventId.value))
+const currentEventAnalysis = computed(() => {
+  const eventId = selectedEventId.value
+  if (!eventId) return null
+  const analysis = eventAnalyses.value[eventId]
+  return analysis?.event_id === eventId ? analysis : null
+})
+
+const eventAnalyzing = computed(() => {
+  const eventId = selectedEventId.value
+  if (!eventId) return false
+  return analyzingEventIds.value.includes(eventId) || ['queued', 'running'].includes(currentEventAnalysis.value?.status || '')
+})
 
 const marketTemperature = computed(() => {
   const themes = dashboard.value?.theme_heatmap_nodes || []
@@ -443,27 +475,87 @@ const filterCluster = (cluster: EventCluster) => {
     return
   }
   selectedEventId.value = undefined
-  eventAnalysis.value = null
   drawerVisible.value = false
   ElMessage.info('该事件簇暂无可定位地图事件，已保留在事件簇列表中')
 }
 
+const setEventAnalysis = (eventId: string, analysis: EventImpactAnalysis) => {
+  if (!eventId || analysis.event_id !== eventId) {
+    console.warn('忽略事件分析串台结果:', { expected: eventId, actual: analysis.event_id })
+    return
+  }
+  eventAnalyses.value = {
+    ...eventAnalyses.value,
+    [eventId]: analysis
+  }
+  if (['ready', 'partial', 'error'].includes(analysis.status || '')) {
+    clearEventAnalysisPoll(eventId)
+  }
+}
+
+const clearEventAnalysisPoll = (eventId: string) => {
+  const timer = analysisPollTimers[eventId]
+  if (timer) {
+    window.clearTimeout(timer)
+    delete analysisPollTimers[eventId]
+  }
+}
+
+const scheduleEventAnalysisPoll = (eventId: string, attempts = 30) => {
+  if (!eventId || attempts <= 0 || analysisPollTimers[eventId]) return
+  analysisPollTimers[eventId] = window.setTimeout(async () => {
+    delete analysisPollTimers[eventId]
+    await fetchSelectedEventAnalysis(eventId)
+    const status = eventAnalyses.value[eventId]?.status
+    if (['queued', 'running'].includes(status || '')) {
+      scheduleEventAnalysisPoll(eventId, attempts - 1)
+    }
+  }, 3000)
+}
+
+const setEventAnalysisStatus = (eventId: string, status: EventImpactAnalysis['status']) => {
+  const event = (dashboard.value?.global_events || []).find((item) => item.event_id === eventId)
+  setEventAnalysis(eventId, {
+    ...(eventAnalyses.value[eventId] || {}),
+    event_id: eventId,
+    event_title: event?.title,
+    status,
+    updated_at: new Date().toISOString()
+  })
+}
+
+const beginEventAnalysis = (eventId: string) => {
+  if (!analyzingEventIds.value.includes(eventId)) {
+    analyzingEventIds.value = [...analyzingEventIds.value, eventId]
+  }
+  setEventAnalysisStatus(eventId, 'running')
+  scheduleEventAnalysisPoll(eventId)
+}
+
+const finishEventAnalysis = (eventId: string) => {
+  analyzingEventIds.value = analyzingEventIds.value.filter((id) => id !== eventId)
+}
+
 const analyzeEvent = async (eventId: string, force = false) => {
   if (!eventId) return
-  analyzingEventId.value = eventId
+  beginEventAnalysis(eventId)
   try {
     const response = await marketIntelligenceApi.analyzeEvent(eventId, force)
-    if (selectedEventId.value === eventId) {
-      eventAnalysis.value = response.data
-      drawerVisible.value = true
+    if (response.data?.event_id !== eventId) {
+      console.warn('事件分析结果 event_id 不匹配，已丢弃:', { expected: eventId, actual: response.data?.event_id })
+      return
     }
+    setEventAnalysis(eventId, response.data)
+    if (['queued', 'running'].includes(response.data.status || '')) {
+      scheduleEventAnalysisPoll(eventId)
+    }
+    if (selectedEventId.value === eventId) drawerVisible.value = true
   } catch (error) {
     console.error('事件影响分析失败:', error)
-    ElMessage.error('事件影响分析失败')
+    setEventAnalysisStatus(eventId, 'error')
+    if (selectedEventId.value === eventId) ElMessage.error('事件影响分析失败')
   } finally {
-    if (analyzingEventId.value === eventId) {
-      analyzingEventId.value = undefined
-    }
+    finishEventAnalysis(eventId)
   }
 }
 
@@ -475,20 +567,26 @@ const analyzeSelectedEvent = async (force = false) => {
 
 const fetchSelectedEventAnalysis = async (eventId = selectedEvent.value?.event_id) => {
   if (!eventId) {
-    eventAnalysis.value = null
     return
   }
   try {
     const response = await marketIntelligenceApi.getEventAnalysis(eventId)
-    if (selectedEventId.value === eventId) {
-      eventAnalysis.value = response.data?.status === 'not_started' ? null : response.data
+    if (response.data?.status === 'not_started') {
+      return
+    }
+    if (response.data?.event_id === eventId) {
+      setEventAnalysis(eventId, response.data)
+      if (['queued', 'running'].includes(response.data.status || '')) {
+        scheduleEventAnalysisPoll(eventId)
+      }
     }
   } catch {
-    if (selectedEventId.value === eventId) {
-      eventAnalysis.value = null
-    }
+    // 未分析或临时错误时不展示其他事件的旧分析。
   }
 }
+
+const forceAnalysisNeeded = (analysis?: EventImpactAnalysis | null) =>
+  !analysis || !['ready', 'partial', 'queued', 'running'].includes(analysis.status || '')
 
 const selectEventById = (
   eventId: string,
@@ -499,12 +597,18 @@ const selectEventById = (
     ElMessage.warning('该事件不在当前时间窗口内，请刷新或扩大时间范围')
     return
   }
-  const changed = selectedEventId.value !== eventId
   selectedEventId.value = eventId
-  if (changed) eventAnalysis.value = null
   if (options.openDrawer) drawerVisible.value = true
   if (options.analyze) {
-    void analyzeEvent(eventId, false)
+    const existing = eventAnalyses.value[eventId]
+    if (forceAnalysisNeeded(existing)) {
+      setEventAnalysisStatus(eventId, 'queued')
+    }
+    if (forceAnalysisNeeded(existing)) {
+      void analyzeEvent(eventId, false)
+    } else {
+      void fetchSelectedEventAnalysis(eventId)
+    }
   } else {
     void fetchSelectedEventAnalysis(eventId)
   }
@@ -643,6 +747,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (refreshTimer) window.clearInterval(refreshTimer)
+  Object.keys(analysisPollTimers).forEach(clearEventAnalysisPoll)
 })
 </script>
 
