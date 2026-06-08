@@ -2102,6 +2102,7 @@ class MarketIntelligenceService:
             if not rule:
                 continue
             severity = self._event_severity(text, doc, rule)
+            focus_score, focus_breakdown = self._event_focus_score(severity=severity, doc=doc, rule=rule)
             event_id = hashlib.sha1(
                 f"{doc.get('doc_key')}|{rule['name']}".encode("utf-8")
             ).hexdigest()[:24]
@@ -2123,6 +2124,10 @@ class MarketIntelligenceService:
                 "location_name": rule["name"],
                 "severity": severity,
                 "confidence": 0.72 if rule.get("country") != "待定位" else 0.46,
+                "source_weight": _safe_float(doc.get("source_weight"), 1.0),
+                "influence_score": _safe_float(doc.get("influence_score")),
+                "focus_score": focus_score,
+                "score_breakdown": focus_breakdown,
                 "affected_assets": rule.get("affected_assets", []),
                 "transmission_channels": rule.get("transmission_channels", []),
                 "mapped_themes": event_themes,
@@ -2223,6 +2228,37 @@ class MarketIntelligenceService:
         score += sum(5 for word in HIGH_SEVERITY_WORDS if word in text)
         score += abs(_safe_float(doc.get("sentiment_score"))) * 12
         return round(max(0.0, min(100.0, score)), 2)
+
+    def _event_focus_score(self, *, severity: float, doc: Dict[str, Any], rule: Dict[str, Any]) -> Tuple[float, Dict[str, Any]]:
+        published_at = _parse_dt(doc.get("published_at"))
+        age_hours = max(0.0, (_utc_now() - published_at).total_seconds() / 3600)
+        recency_score = max(0.0, min(100.0, 100.0 * math.exp(-age_hours / 36.0)))
+        source_impact = max(0.0, min(100.0, _safe_float(doc.get("influence_score"))))
+        a_share_mapping = min(100.0, len(rule.get("themes") or []) * 18 + len(doc.get("symbols") or []) * 14)
+        confidence_score = 72 if rule.get("country") != "待定位" else 46
+        focus_score = (
+            _safe_float(severity) * 0.42
+            + source_impact * 0.24
+            + recency_score * 0.14
+            + a_share_mapping * 0.12
+            + confidence_score * 0.08
+        )
+        return round(max(0.0, min(100.0, focus_score)), 2), {
+            "formula": "42%事件严重度 + 24%来源/内容影响力 + 14%时效性 + 12%A股映射强度 + 8%定位置信度",
+            "input_values": {
+                "severity": round(_safe_float(severity), 2),
+                "source_impact": round(source_impact, 2),
+                "source_weight": round(_safe_float(doc.get("source_weight"), 1.0), 2),
+                "influence_score": round(_safe_float(doc.get("influence_score")), 2),
+                "recency_score": round(recency_score, 2),
+                "age_hours": round(age_hours, 2),
+                "a_share_mapping": round(a_share_mapping, 2),
+                "theme_count": len(rule.get("themes") or []),
+                "symbol_count": len(doc.get("symbols") or []),
+                "confidence_score": confidence_score,
+            },
+            "normalization_method": "时效用36小时指数衰减；来源影响力来自证据池source_weight与influence_score；最终分数限制在0-100",
+        }
 
     def _event_layers_for_event(self, text: str, doc: Dict[str, Any], rule: Dict[str, Any]) -> List[str]:
         event_type = rule.get("event_type") or self._event_type(text)

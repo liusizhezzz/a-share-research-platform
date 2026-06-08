@@ -49,11 +49,12 @@
         :key="event.event_id"
         class="fallback-point"
         :class="{ active: event.event_id === selectedEventId, high: event.severity >= 72 }"
-        :style="{ left: event.left, top: event.top }"
+        :style="{ left: event.left, top: event.top, '--bubble-size': `${event.pixel_size}px` }"
         :title="event.title"
         @click="emit('select', event)"
       >
         <span></span>
+        <b v-if="event.event_count_at_location > 1">{{ event.event_count_at_location }}</b>
         <em>{{ event.location_name || event.country || event.region || '事件' }}</em>
       </button>
     </div>
@@ -64,6 +65,13 @@
         </span>
         <strong>{{ selectedEvent.location_name || selectedEvent.country || selectedEvent.region || '全球事件' }}</strong>
       </div>
+      <div class="selected-card-metrics">
+        <span>重点 {{ Math.round(selectedEvent.focus_score || selectedEvent.severity || 0) }}</span>
+        <span>来源 {{ Math.round(selectedEvent.source_impact_score || selectedEvent.influence_score || 0) }}</span>
+        <span v-if="selectedEvent.event_count_at_location && selectedEvent.event_count_at_location > 1">
+          聚合 {{ selectedEvent.event_count_at_location }}
+        </span>
+      </div>
       <p>{{ selectedEvent.title }}</p>
       <div class="selected-card-tags">
         <span v-for="tag in selectedEvent.mapped_themes?.slice(0, 3)" :key="tag">{{ tag }}</span>
@@ -73,6 +81,7 @@
       <span><i class="dot high"></i>高严重度</span>
       <span><i class="dot medium"></i>中等扰动</span>
       <span><i class="dot low"></i>观察</span>
+      <span><i class="dot focus"></i>气泡大小=重点关注分</span>
       <span class="wm-source">World Monitor map kit</span>
     </div>
   </div>
@@ -97,6 +106,16 @@ import {
   type WorldMonitorBasemapId,
   type WorldMonitorViewId
 } from '@/utils/worldMonitorMapKit'
+
+type MapEventBubble = GlobalEvent & {
+  event_count_at_location: number
+  focus_score: number
+  source_impact_score: number
+  source_diversity: number
+  pixel_size: number
+  cluster_events: GlobalEvent[]
+  cluster_titles: string[]
+}
 
 const props = defineProps<{
   events: GlobalEvent[]
@@ -158,18 +177,6 @@ const fallbackGridLines = [
   })
 ]
 
-const positionedEvents = computed(() =>
-  props.events.slice(0, 36).map((event) => ({
-    ...event,
-    left: `${Math.max(3, Math.min(97, ((Number(event.lon || 0) + 180) / 360) * 100))}%`,
-    top: `${Math.max(6, Math.min(94, ((90 - Number(event.lat || 0)) / 180) * 100))}%`
-  }))
-)
-
-const selectedEvent = computed(() =>
-  props.events.find((event) => event.event_id === props.selectedEventId) || null
-)
-
 const eventColor = (event: GlobalEvent) => {
   const severity = Number(event.severity || 0)
   if (severity >= 72) return [217, 75, 95, 230]
@@ -189,24 +196,144 @@ const validEvents = computed(() =>
   })
 )
 
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
+
+const sourceImpactScore = (event: GlobalEvent) => {
+  const influence = Number(event.influence_score || 0)
+  if (Number.isFinite(influence) && influence > 0) return clamp(influence, 35, 100)
+  const sourceText = `${event.source || ''} ${event.source_category || ''} ${event.intel_lens || ''}`.toLowerCase()
+  if (/cisa|nvd|ransomware|kev|cve/.test(sourceText)) return 92
+  if (/federal reserve|sec|treasury|official|央行|财政/.test(sourceText)) return 90
+  if (/csis|atlantic|brookings|defense|bellingcat|osint|智库|防务/.test(sourceText)) return 86
+  if (/gcaptain|maritime|航运|shipping/.test(sourceText)) return 84
+  if (/cnbc|bbc|al jazeera|gdelt|markets|world/.test(sourceText)) return 80
+  if (/东方财富|财联社|证券时报|上证报|中证报/.test(sourceText)) return 78
+  const sourceWeight = Number(event.source_weight || 0)
+  return clamp(sourceWeight > 0 ? sourceWeight * 70 : 68, 35, 100)
+}
+
+const recencyScore = (event: GlobalEvent) => {
+  if (!event.published_at) return 62
+  const ts = new Date(event.published_at).getTime()
+  if (!Number.isFinite(ts)) return 62
+  const ageHours = Math.max(0, (Date.now() - ts) / 36e5)
+  return clamp(100 * Math.exp(-ageHours / 36), 10, 100)
+}
+
+const aShareMappingScore = (event: GlobalEvent) =>
+  clamp((event.mapped_themes?.length || 0) * 16 + (event.mapped_stocks?.length || 0) * 18, 0, 100)
+
+const singleEventFocusScore = (event: GlobalEvent) => {
+  const backendScore = Number(event.focus_score || 0)
+  if (Number.isFinite(backendScore) && backendScore > 0) return clamp(backendScore, 0, 100)
+  return clamp(
+    Number(event.severity || 0) * 0.42
+      + sourceImpactScore(event) * 0.24
+      + recencyScore(event) * 0.14
+      + aShareMappingScore(event) * 0.12
+      + Number(event.confidence || 0.55) * 100 * 0.08,
+    0,
+    100
+  )
+}
+
+const clusterKey = (event: GlobalEvent) => {
+  const lon = Math.round(Number(event.lon || 0) * 2) / 2
+  const lat = Math.round(Number(event.lat || 0) * 2) / 2
+  const layer = event.map_layers?.[0] || event.event_type || 'event'
+  return `${lon}:${lat}:${layer}`
+}
+
+const uniqueList = (items: Array<string | undefined>, limit = 8) =>
+  Array.from(new Set(items.filter(Boolean) as string[])).slice(0, limit)
+
+const bubblePixelSize = (event: Pick<MapEventBubble, 'focus_score' | 'event_count_at_location' | 'source_diversity'>) =>
+  clamp(16 + event.focus_score * 0.38 + Math.log2(event.event_count_at_location + 1) * 8 + event.source_diversity * 1.8, 22, 74)
+
+const mapBubbles = computed<MapEventBubble[]>(() => {
+  const grouped = new Map<string, GlobalEvent[]>()
+  validEvents.value.forEach((event) => {
+    const key = clusterKey(event)
+    grouped.set(key, [...(grouped.get(key) || []), event])
+  })
+
+  return Array.from(grouped.values()).map((items) => {
+    const ranked = items.slice().sort((a, b) => singleEventFocusScore(b) - singleEventFocusScore(a))
+    const top = ranked[0]
+    const weights = ranked.map((event) => Math.max(1, singleEventFocusScore(event)))
+    const weightSum = weights.reduce((sum, value) => sum + value, 0) || 1
+    const lon = ranked.reduce((sum, event, index) => sum + Number(event.lon || 0) * weights[index], 0) / weightSum
+    const lat = ranked.reduce((sum, event, index) => sum + Number(event.lat || 0) * weights[index], 0) / weightSum
+    const maxSeverity = Math.max(...ranked.map((event) => Number(event.severity || 0)))
+    const maxFocus = Math.max(...ranked.map(singleEventFocusScore))
+    const avgFocus = ranked.reduce((sum, event) => sum + singleEventFocusScore(event), 0) / ranked.length
+    const sourceScores = ranked.map(sourceImpactScore)
+    const avgSourceImpact = sourceScores.reduce((sum, value) => sum + value, 0) / sourceScores.length
+    const sourceDiversity = new Set(ranked.map((event) => event.source || event.source_category || event.intel_lens || 'unknown')).size
+    const countScore = clamp(Math.log2(ranked.length + 1) * 24, 0, 100)
+    const focus = clamp(maxFocus * 0.56 + avgFocus * 0.18 + avgSourceImpact * 0.12 + countScore * 0.14, 0, 100)
+    const bubble: MapEventBubble = {
+      ...top,
+      lon,
+      lat,
+      severity: maxSeverity,
+      focus_score: Number(focus.toFixed(2)),
+      source_impact_score: Number(avgSourceImpact.toFixed(2)),
+      source_diversity: sourceDiversity,
+      event_count_at_location: ranked.length,
+      pixel_size: 0,
+      cluster_events: ranked,
+      cluster_titles: ranked.slice(0, 5).map((event) => event.title),
+      mapped_themes: uniqueList(ranked.flatMap((event) => event.mapped_themes || [])),
+      affected_assets: uniqueList(ranked.flatMap((event) => event.affected_assets || [])),
+      map_layers: uniqueList(ranked.flatMap((event) => event.map_layers || [])),
+      title: ranked.length > 1
+        ? `${top.location_name || top.country || top.region || '区域事件'}：${ranked.length}个事件聚合 - ${top.title}`
+        : top.title,
+      summary: ranked.length > 1
+        ? ranked.slice(0, 3).map((event) => event.title).join('；')
+        : top.summary
+    }
+    bubble.pixel_size = bubblePixelSize(bubble)
+    return bubble
+  }).sort((a, b) => b.focus_score - a.focus_score)
+})
+
+const positionedEvents = computed(() =>
+  mapBubbles.value.slice(0, 80).map((event) => ({
+    ...event,
+    left: `${Math.max(3, Math.min(97, ((Number(event.lon || 0) + 180) / 360) * 100))}%`,
+    top: `${Math.max(6, Math.min(94, ((90 - Number(event.lat || 0)) / 180) * 100))}%`
+  }))
+)
+
+const selectedEvent = computed<MapEventBubble | GlobalEvent | null>(() =>
+  mapBubbles.value.find((event) =>
+    event.event_id === props.selectedEventId
+    || event.cluster_events.some((clusterEvent) => clusterEvent.event_id === props.selectedEventId)
+  )
+  || props.events.find((event) => event.event_id === props.selectedEventId)
+  || null
+)
+
 const labelEvents = computed(() => {
   const zoom = map?.getZoom() || 0
-  const limit = zoom >= WORLD_MONITOR_LAYER_ZOOM_THRESHOLDS.denseLabels ? 80 : 32
-  return validEvents.value
+  const limit = zoom >= WORLD_MONITOR_LAYER_ZOOM_THRESHOLDS.denseLabels ? 72 : 30
+  return mapBubbles.value
     .slice()
-    .sort((a, b) => Number(b.severity || 0) - Number(a.severity || 0))
+    .sort((a, b) => Number(b.focus_score || 0) - Number(a.focus_score || 0))
     .slice(0, limit)
 })
 
 const eventRoutes = computed(() =>
-  validEvents.value.slice(0, 24).map((event) => ({
+  mapBubbles.value.slice(0, 30).map((event) => ({
     ...event,
     path: interpolateGreatCircle(eventPosition(event), [116.4, 39.9], 28)
   }))
 )
 
 const buildLayers = () => [
-  new PathLayer<GlobalEvent & { path: [number, number][] }>({
+  new PathLayer<MapEventBubble & { path: [number, number][] }>({
     id: 'wm-event-transmission-paths',
     data: eventRoutes.value,
     getPath: (event) => event.path,
@@ -214,40 +341,42 @@ const buildLayers = () => [
       const color = eventColor(event)
       return [color[0], color[1], color[2], 118]
     },
-    getWidth: (event) => Math.max(1, Number(event.severity || 0) / 24),
+    getWidth: (event) => Math.max(1, Number(event.focus_score || event.severity || 0) / 18),
     widthMinPixels: 1,
-    widthMaxPixels: 5,
+    widthMaxPixels: 8,
     jointRounded: true,
     capRounded: true,
     pickable: false
   }),
-  new ScatterplotLayer<GlobalEvent>({
+  new ScatterplotLayer<MapEventBubble>({
     id: 'wm-event-halos',
-    data: validEvents.value,
+    data: mapBubbles.value,
     getPosition: eventPosition,
-    getRadius: (event) => Math.max(70000, Number(event.severity || 0) * 2200),
-    radiusMinPixels: 11,
-    radiusMaxPixels: 42,
+    getRadius: (event) =>
+      Math.max(110000, Number(event.focus_score || event.severity || 0) * 4800 + event.event_count_at_location * 32000),
+    radiusMinPixels: 18,
+    radiusMaxPixels: 104,
     getFillColor: (event) => {
       const color = eventColor(event)
-      return [color[0], color[1], color[2], event.event_id === props.selectedEventId ? 88 : 34]
+      return [color[0], color[1], color[2], event.event_id === props.selectedEventId ? 106 : 46]
     },
     stroked: false,
     filled: true,
     pickable: false
   }),
-  new ScatterplotLayer<GlobalEvent>({
+  new ScatterplotLayer<MapEventBubble>({
     id: 'wm-global-events',
-    data: validEvents.value,
+    data: mapBubbles.value,
     getPosition: eventPosition,
-    getRadius: (event) => Math.max(42000, Number(event.severity || 0) * 1400),
-    radiusMinPixels: 5,
-    radiusMaxPixels: 28,
+    getRadius: (event) =>
+      Math.max(62000, Number(event.focus_score || event.severity || 0) * 3100 + event.event_count_at_location * 22000),
+    radiusMinPixels: 10,
+    radiusMaxPixels: 70,
     getFillColor: (event) => eventColor(event) as [number, number, number, number],
     getLineColor: (event) => event.event_id === props.selectedEventId ? [255, 255, 255, 245] : [225, 238, 255, 180],
-    getLineWidth: (event) => (event.event_id === props.selectedEventId ? 3 : 1),
+    getLineWidth: (event) => (event.event_id === props.selectedEventId ? 4 : event.focus_score >= 78 ? 2 : 1),
     lineWidthMinPixels: 1,
-    lineWidthMaxPixels: 4,
+    lineWidthMaxPixels: 5,
     stroked: true,
     filled: true,
     pickable: true,
@@ -256,14 +385,30 @@ const buildLayers = () => [
       return true
     }
   }),
-  new TextLayer<GlobalEvent>({
+  new TextLayer<MapEventBubble>({
+    id: 'wm-event-count-labels',
+    data: mapBubbles.value.filter((event) => event.event_count_at_location > 1 || event.focus_score >= 76),
+    getPosition: eventPosition,
+    getText: (event) => event.event_count_at_location > 1 ? String(event.event_count_at_location) : '!',
+    characterSet: 'auto',
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif',
+    getSize: (event) => event.event_count_at_location > 9 ? 15 : 13,
+    getColor: [255, 255, 255, 245],
+    getTextAnchor: 'middle',
+    getAlignmentBaseline: 'center',
+    pickable: false
+  }),
+  new TextLayer<MapEventBubble>({
     id: 'wm-global-event-labels',
     data: labelEvents.value,
     getPosition: eventPosition,
-    getText: (event) => event.location_name || event.country || event.region || event.title.slice(0, 8),
+    getText: (event) => {
+      const place = event.location_name || event.country || event.region || event.title.slice(0, 8)
+      return event.event_count_at_location > 1 ? `${place} · ${event.event_count_at_location}` : place
+    },
     characterSet: 'auto',
     fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif',
-    getSize: (event) => (event.event_id === props.selectedEventId ? 14 : 11),
+    getSize: (event) => (event.event_id === props.selectedEventId ? 15 : event.focus_score >= 78 ? 12 : 11),
     getColor: (event) => (event.event_id === props.selectedEventId ? [255, 255, 255, 245] : [197, 211, 231, 210]),
     getAngle: 0,
     getTextAnchor: 'start',
@@ -306,20 +451,29 @@ const initializeDeckOverlay = () => {
   }
 }
 
-const buildTooltip = (info: { object?: GlobalEvent } | null) => {
+const buildTooltip = (info: { object?: MapEventBubble } | null) => {
   const event = info?.object
   if (!event) return null
   const severity = Math.round(Number(event.severity || 0))
+  const focus = Math.round(Number(event.focus_score || event.severity || 0))
+  const sourceImpact = Math.round(Number(event.source_impact_score || event.influence_score || 0))
   const tags = [...(event.mapped_themes || []), ...(event.affected_assets || [])].slice(0, 5)
+  const clusterList = event.cluster_titles?.length
+    ? `<ul>${event.cluster_titles.slice(0, 4).map((title) => `<li>${escapeMapHtml(title)}</li>`).join('')}</ul>`
+    : ''
   return {
     html: `
       <div class="wm-map-tooltip">
         <div class="wm-map-tooltip-top">
           <span>严重度 ${severity}</span>
+          <span>重点 ${focus}</span>
+          <span>来源 ${sourceImpact}</span>
+          ${event.event_count_at_location > 1 ? `<span>聚合 ${event.event_count_at_location}</span>` : ''}
           <strong>${escapeMapHtml(event.location_name || event.country || event.region || '全球事件')}</strong>
         </div>
         <h4>${escapeMapHtml(event.title)}</h4>
         ${event.summary ? `<p>${escapeMapHtml(event.summary)}</p>` : ''}
+        ${clusterList}
         ${tags.length ? `<div class="wm-map-tooltip-tags">${tags.map((tag) => `<em>${escapeMapHtml(tag)}</em>`).join('')}</div>` : ''}
       </div>
     `
@@ -587,8 +741,8 @@ watch(
 .fallback-point {
   z-index: 2;
   position: absolute;
-  width: 22px;
-  height: 22px;
+  width: var(--bubble-size, 28px);
+  height: var(--bubble-size, 28px);
   transform: translate(-50%, -50%);
   border: none;
   border-radius: 50%;
@@ -606,6 +760,18 @@ watch(
   &.high span {
     background: #d94b5f;
     box-shadow: 0 0 0 6px rgba(217, 75, 95, 0.2);
+  }
+
+  b {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 780;
+    pointer-events: none;
   }
 
   &.active {
@@ -670,6 +836,22 @@ watch(
   }
 }
 
+.selected-card-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+
+  span {
+    padding: 2px 6px;
+    border: 1px solid rgba(125, 164, 220, 0.22);
+    border-radius: 6px;
+    background: rgba(34, 55, 86, 0.48);
+    color: #bcd2f3;
+    font-size: 11px;
+  }
+}
+
 .severity-pill {
   display: inline-flex;
   align-items: center;
@@ -691,6 +873,13 @@ watch(
 
   &.low {
     background: #3974d8;
+  }
+
+  &.focus {
+    background: #ffffff;
+    box-shadow:
+      0 0 0 3px rgba(59, 130, 246, 0.18),
+      0 0 16px rgba(59, 130, 246, 0.42);
   }
 }
 
@@ -789,6 +978,18 @@ watch(
   color: #aebed3;
   font-size: 12px;
   line-height: 1.4;
+}
+
+:global(.wm-map-tooltip ul) {
+  margin: 7px 0 0;
+  padding-left: 15px;
+  color: #c5d5eb;
+  font-size: 11px;
+  line-height: 1.42;
+}
+
+:global(.wm-map-tooltip li + li) {
+  margin-top: 2px;
 }
 
 :global(.wm-map-tooltip-tags) {

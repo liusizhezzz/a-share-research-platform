@@ -30,6 +30,12 @@ export interface GlobalEvent {
   location_name?: string
   severity: number
   confidence?: number
+  source_weight?: number
+  influence_score?: number
+  focus_score?: number
+  source_impact_score?: number
+  event_count_at_location?: number
+  score_breakdown?: ScoreBreakdown
   affected_assets?: string[]
   transmission_channels?: string[]
   mapped_themes?: string[]
